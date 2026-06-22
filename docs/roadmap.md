@@ -80,5 +80,5 @@
 
 - テストはテスティングピラミッドに従い、ユニット（lexer/parser/analyzer）を厚く、結合（source→LSPクエリ）を中程度、E2E（extension host）を薄く。
 - 対象は最新 LLVM LangRef（opaque pointer `ptr`）。typed pointer は寛容にパースするが警告しない。
-- コメント/ドキュメントは日本語、JSDocで記述（AGENTS.md準拠）。
+- コメント/ドキュメントは日本語、TSDocで記述（AGENTS.md準拠）。
 - LLVM バージョン別モードは当面扱わず、最新 LangRef 追従を優先する。

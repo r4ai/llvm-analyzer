@@ -5,17 +5,20 @@ description: このリポジトリで機能・フェーズを実装する際の�
 
 LLVM IR LSP 拡張機能の開発で、機能やロードマップのフェーズを実装するときの標準手順。
 全体設計は [docs/design.md](../../../docs/design.md)、進捗は [docs/roadmap.md](../../../docs/roadmap.md)、過去のプランは [docs/plans/](../../../docs/plans/) を参照する。
-コーディング規約は [AGENTS.md](../../../AGENTS.md) に従う（カプセル化・関心の分離・契約による設計・副作用の隔離、古典派TDD、日本語ドキュメント、JSDoc）。
+コーディング規約は [AGENTS.md](../../../AGENTS.md) に従う（カプセル化・関心の分離・契約による設計・副作用の隔離、古典派TDD、日本語ドキュメント、TSDoc）。
 
 ## ステップ1: プランを立て、`docs/plans/` に作成
 
 1. 不明点は決め打ちせず、`AskUserQuestion` で質問して要件を確定する。
 2. `docs/design.md` / `docs/roadmap.md` を読み、対象フェーズの範囲と既存方針を把握する。
-3. プランを `docs/plans/YYYY-MM-DD-<topic>.md` に**ログとして**作成する。以下を含める:
+3. `docs/plans/` の既存ファイルで最大の連番を確認する。
+   次の 1-indexed な連番で `docs/plans/NNN-<topic>.md` に**ログとして**作成する。
+   `NNN` は `001` から始め、古い順に並ぶようゼロ埋めする。
+   以下を含める:
    - **Context**: なぜこの変更が必要か（解決する課題・きっかけ・期待する成果）。
    - **スコープ**: 今回やること／やらないこと。最小実装を意識し、欲張らない。
    - **検証方法**: どう動作確認するか（テスト・コマンド・手動確認）。
-4. `docs/plans/` は追記専用のログ。過去のプランは書き換えず、新しいファイルを足す。
+4. `docs/plans/` は追記専用のログ。過去のプランは書き換えず、新しい連番ファイルを足す。
 
 ## ステップ2: 仮説検証を繰り返して実装
 
@@ -45,7 +48,7 @@ AGENTS.md の古典派TDD（**探索 → Red → Green → Refactoring**）で�
 ## チェックリスト
 
 - [ ] 不明点を質問し、要件を確定した
-- [ ] `docs/plans/YYYY-MM-DD-<topic>.md` にプランを作成した（Context / スコープ / 検証）
+- [ ] `docs/plans/NNN-<topic>.md` にプランを作成した（Context / スコープ / 検証）
 - [ ] 探索 → Red → Green → Refactoring のループで実装した
 - [ ] `pnpm test` / `typecheck` / `lint` / `format` が全てグリーン
 - [ ] `docs/roadmap.md` のチェックボックスを更新した

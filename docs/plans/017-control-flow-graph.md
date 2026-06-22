@@ -1,4 +1,4 @@
-# 2026-06-22 実装ログ: Control Flow Graph 表示
+# 実装ログ: Control Flow Graph 表示
 
 ## Context
 

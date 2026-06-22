@@ -147,5 +147,5 @@ pnpm install
 | -------------------------------------------------------------------------- | ---------------------------------------------------- |
 | [docs/design.md](docs/design.md)                                           | アーキテクチャ、パッケージ責務、LSP 機能の対応関係。 |
 | [docs/roadmap.md](docs/roadmap.md)                                         | 実装済みフェーズと残タスクの管理。                   |
-| [docs/plans/](docs/plans/)                                                 | 各フェーズの実行ログ。                               |
+| [docs/plans/](docs/plans/)                                                 | 各フェーズの実行ログ。ファイル名は古い順の連番。     |
 | [packages/vscode-extension/README.md](packages/vscode-extension/README.md) | VSCode 拡張機能としての機能と設定。                  |

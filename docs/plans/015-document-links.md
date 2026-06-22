@@ -1,4 +1,4 @@
-# 2026-06-22 実装ログ: Document Link
+# 実装ログ: Document Link
 
 ## Context
 

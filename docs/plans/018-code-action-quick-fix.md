@@ -1,4 +1,4 @@
-# 2026-06-22 実装ログ: Code Action / Quick Fix
+# 実装ログ: Code Action / Quick Fix
 
 ## Context
 

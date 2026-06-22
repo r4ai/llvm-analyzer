@@ -1,4 +1,4 @@
-# 2026-06-22 実装ログ: Format / Range Format
+# 実装ログ: Format / Range Format
 
 ## Context
 

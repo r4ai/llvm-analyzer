@@ -1,4 +1,4 @@
-# 2026-06-22 実装ログ: Inlay Hints
+# 実装ログ: Inlay Hints
 
 ## Context
 

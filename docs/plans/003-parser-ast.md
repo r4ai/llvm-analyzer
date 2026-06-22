@@ -1,11 +1,11 @@
-# 2026-06-22 プラン: parser AST + 再帰下降パーサ
+# プラン: parser AST + 再帰下降パーサ
 
 > 実行プランのログ。過去のプランは書き換えず、ここに追記している。
 
 ## Context
 
 [roadmap.md](../roadmap.md) のフェーズ「parser: AST + 再帰下降パーサ」を実装する。
-[lexer フェーズ](./2026-06-22-parser-lexer.md) で得た `tokenize(source): Token[]` を入力に、
+[lexer フェーズ](./002-parser-lexer.md) で得た `tokenize(source): Token[]` を入力に、
 LLVM IR の構文木（AST）を組み立てる純粋関数 `parseModule(source)` を追加する。
 これは analyzer（シンボル表 / 定義参照インデックス / 型解決）と LSP
 （definition / references / documentSymbol / foldingRange / diagnostics）の土台になる。

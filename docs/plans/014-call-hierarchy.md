@@ -1,4 +1,4 @@
-# 2026-06-22 実装ログ: Call Hierarchy
+# 実装ログ: Call Hierarchy
 
 ## Context
 

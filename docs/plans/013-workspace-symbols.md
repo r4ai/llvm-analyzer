@@ -1,4 +1,4 @@
-# 2026-06-22 実装ログ: Workspace Symbols
+# 実装ログ: Workspace Symbols
 
 ## Context
 

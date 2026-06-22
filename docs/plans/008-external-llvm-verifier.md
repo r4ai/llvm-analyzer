@@ -1,4 +1,4 @@
-# 2026-06-22 プラン: 外部 LLVM verifier 連携
+# プラン: 外部 LLVM verifier 連携
 
 ## Context
 
