@@ -16,7 +16,7 @@
   - AST: Module / 各トップレベルエントリ（SourceFilename / TargetDefinition / TypeDefinition / GlobalVariable / FunctionDeclaration / FunctionDefinition / AttributeGroupDefinition / MetadataDefinition / UnknownEntry）/ BasicBlock / Instruction / IdentifierRef。各ノードに `range`
   - 粒度は「構造重視・命令は粗く」: 命令・型の内部は構造化せず、出現する識別子参照（`@`/`%`/`!`/`#`/`$`・ラベル）を収集。型解決は analyzer へ
   - エラー回復付き（1行の失敗で全体を止めず `UnknownEntry`＋診断で継続）。構文パターンから網羅的にテスト設計
-- [ ] **analyzer: 意味モデル**
+- [x] **analyzer: 意味モデル**（2026-06-22）
   - シンボル表 / スコープ（モジュール・関数）/ 定義参照インデックス / 型解決 / 診断
   - オペコード・型のドキュメント辞書
 - [ ] **language-server: LSPサーバ**

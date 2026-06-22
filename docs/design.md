@@ -43,10 +43,10 @@ parser/analyzer は `vscode*` に一切依存しない。
   - モジュールスコープ: `@global`、名前付き型 `%struct.Foo`、名前付きメタデータ、属性グループ。
   - 関数スコープ: ローカルSSA値 `%x`（パラメータ含む）、ラベル。
 - **定義/参照インデックス**: 各シンボルの定義位置と全参照位置（Go to Definition / Find References / Rename の土台）。
-- **型解決**: SSA値の型（Hover表示用）。
-- **診断**: 未定義値の参照、重複定義など（初期は控えめに）。parser の構文診断とマージ。
+- **型解決**: SSA値の型（Hover表示用）。parser の AST は命令内部を粗く保持するため、`analyze(ast, { source })` で元ソースを渡された場合に、関数引数と命令結果の直近型トークンから安全に推定する。
+- **診断**: 未定義値の参照、重複定義など（初期は控えめに）。language-server で parser の構文診断とマージする。
 - オペコード/型のドキュメント辞書を持ち、Hover/Completion で再利用。
-- 公開API例: `analyze(ast): SemanticModel`、`SemanticModel.definitionAt(pos)` / `referencesOf(symbol)` / `symbolAt(pos)` / `documentSymbols()` / `diagnostics()`
+- 公開API例: `analyze(ast, { source }): SemanticModel`、`SemanticModel.definitionAt(pos)` / `referencesOf(symbol)` / `symbolAt(pos)` / `documentSymbols()` / `diagnostics()`
 
 ### language-server（アダプタ）
 
