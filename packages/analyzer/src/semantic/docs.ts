@@ -1,10 +1,32 @@
-/** Hover や補完で使う短いドキュメント項目。 */
+/**
+ * Hover や補完で使う短いドキュメント項目。
+ *
+ * @remarks
+ * `label` は補完候補や hover 見出しに出す短い名前。
+ * `markdown` は LSP の MarkupContent へ渡す本文として使う。
+ *
+ * @public
+ */
 export interface DocEntry {
+  /** 表示名。LLVM IR 上のキーワードやオペコードをそのまま保持する。 */
   readonly label: string;
+  /** ユーザーへ表示する説明文。 */
   readonly markdown: string;
 }
 
-/** よく使う LLVM IR オペコードのドキュメント辞書。 */
+/**
+ * よく使う LLVM IR オペコードのドキュメント辞書。
+ *
+ * @remarks
+ * 初期実装では、hover と completion の品質に効く代表的な命令だけを持つ。
+ * 完全な仕様説明ではなく、エディタ上で短時間に意味を確認するための説明に絞る。
+ *
+ * @example
+ * const doc = opcodeDocs.get("call");
+ * doc?.markdown; // 関数呼び出しの説明
+ *
+ * @public
+ */
 export const opcodeDocs = new Map<string, DocEntry>([
   ["add", { label: "add", markdown: "整数またはベクトル整数の加算を行います。" }],
   ["sub", { label: "sub", markdown: "整数またはベクトル整数の減算を行います。" }],
@@ -18,7 +40,18 @@ export const opcodeDocs = new Map<string, DocEntry>([
   ["alloca", { label: "alloca", markdown: "現在の関数のスタックフレームにメモリを確保します。" }],
 ]);
 
-/** よく使う LLVM IR 型のドキュメント辞書。 */
+/**
+ * よく使う LLVM IR 型のドキュメント辞書。
+ *
+ * @remarks
+ * opaque pointer 前提の `ptr` と、整数型、浮動小数点型、特殊な IR 型を補完候補として提供する。
+ *
+ * @example
+ * const pointerDoc = typeDocs.get("ptr");
+ * pointerDoc?.label; // "ptr"
+ *
+ * @public
+ */
 export const typeDocs = new Map<string, DocEntry>([
   ["void", { label: "void", markdown: "値を返さない型です。" }],
   ["ptr", { label: "ptr", markdown: "LLVM の opaque pointer 型です。" }],

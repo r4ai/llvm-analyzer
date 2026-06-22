@@ -1,3 +1,13 @@
+/**
+ * LLVM IR AST から意味モデルを構築する純粋な analyzer。
+ *
+ * @remarks
+ * parser は構文を止めずに拾うことを優先し、識別子出現を {@link IdentifierRef} として残す。
+ * analyzer はその出現列をスコープ規則に従って結び、定義参照インデックスと意味診断を作る。
+ *
+ * 依存方向を保つため、このファイルは VSCode API や LSP 型へ依存しない。
+ * LSP 固有の型変換は language-server パッケージで行う。
+ */
 import type {
   BasicBlock,
   FunctionDefinition,
@@ -55,7 +65,24 @@ const TYPE_PATTERN =
 const LEADING_TYPE_PATTERN =
   /^\s*((?:i[1-9][0-9]*)|ptr|void|label|metadata|float|double|half|bfloat|x86_fp80|fp128|ppc_fp128)\b/u;
 
-/** AST から意味モデルを構築する純粋関数。 */
+/**
+ * AST から意味モデルを構築する純粋関数。
+ *
+ * @remarks
+ * 処理は三段階に分ける。
+ * まずトップレベル定義をモジュールスコープへ登録する。
+ * 次に関数ごとに引数、ラベル、命令結果を関数スコープへ登録する。
+ * 最後に各参照を該当スコープのシンボルへ解決し、未解決なら診断を積む。
+ *
+ * @param ast parser が返した LLVM IR モジュール AST
+ * @param options 型推定と診断出力を調整するオプション
+ * @returns LSP アダプタから問い合わせるための意味モデル
+ * @example
+ * const source = "define i32 @main(i32 %x) {\n  ret i32 %x\n}";
+ * const { ast } = parseModule(source);
+ * const model = analyze(ast, { source });
+ * model.definitionAt({ offset: 39, line: 1, column: 10 });
+ */
 export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticModel => {
   const moduleScope: Scope = { id: MODULE_SCOPE_ID, name: MODULE_SCOPE_NAME, symbols: new Map() };
   const functionScopes = new Map<string, Scope>();
@@ -64,6 +91,19 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   const diagnostics: AnalyzerDiagnostic[] = [];
   const reportUndefinedReferences = options.reportUndefinedReferences ?? true;
 
+  /**
+   * スコープへ定義を登録する。
+   *
+   * @remarks
+   * 重複定義でも後続の参照解決を続けるため、診断を積んだうえで新しい定義を登録する。
+   * これにより、不正な入力でも後続行の解析結果をできるだけ返せる。
+   *
+   * @param scope 定義を登録するスコープ。
+   * @param ref 定義名を表す識別子出現。
+   * @param kind 登録する意味シンボルの種別。
+   * @param type 推定済みの LLVM IR 型。未推定なら省略する。
+   * @returns 登録した内部シンボル。
+   */
   const addSymbol = (
     scope: Scope,
     ref: IdentifierRef,
@@ -95,11 +135,25 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     return symbol;
   };
 
+  /**
+   * 解決済み参照をシンボルの参照列と位置インデックスへ追加する。
+   *
+   * @param symbol 参照先として解決されたシンボル。
+   * @param ref 参照側の識別子出現。
+   */
   const addReference = (symbol: MutableSymbol, ref: IdentifierRef): void => {
     symbol.references.push(ref);
     occurrences.push({ ref, symbol });
   };
 
+  /**
+   * 未定義参照の診断を追加する。
+   *
+   * @param ref 未定義だった識別子出現。
+   *
+   * @remarks
+   * `reportUndefinedReferences` が false なら何もしない。
+   */
   const addUndefined = (ref: IdentifierRef): void => {
     if (!reportUndefinedReferences) return;
     diagnostics.push({
@@ -154,12 +208,27 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   return makeModel(symbols, occurrences, diagnostics, ast.entries, functionScopes);
 };
 
+/**
+ * 関数定義に対応する空の関数スコープを作る。
+ *
+ * @param entry スコープを作る関数定義。
+ * @returns 関数名を表示名に持つ空スコープ。
+ *
+ * @remarks
+ * `id` はモジュールスコープと衝突しないように `function:` 接頭辞を付ける。
+ */
 const makeFunctionScope = (entry: FunctionDefinition): Scope => ({
   id: `function:${entry.defines.name}`,
   name: entry.defines.name,
   symbols: new Map(),
 });
 
+/**
+ * トップレベルエントリ種別を analyzer のシンボル種別へ写像する。
+ *
+ * @param entry parser が返したトップレベルエントリ。
+ * @returns analyzer が扱うシンボル種別。
+ */
 const symbolKindOfEntry = (entry: TopLevelEntry): SymbolKind => {
   switch (entry.kind) {
     case "GlobalVariable":
@@ -178,6 +247,19 @@ const symbolKindOfEntry = (entry: TopLevelEntry): SymbolKind => {
   }
 };
 
+/**
+ * 識別子参照列を現在のスコープで解決する。
+ *
+ * @param refs 解決対象の識別子参照列。
+ * @param moduleScope モジュール全体で共有するスコープ。
+ * @param functionScope 関数内を解析している場合の関数スコープ。
+ * @param addReference 解決済み参照を記録するコールバック。
+ * @param addUndefined 未解決参照を診断へ変換するコールバック。
+ *
+ * @remarks
+ * トップレベルエントリでは `functionScope` を渡さず、モジュールスコープだけを探索する。
+ * 関数本体では関数スコープを優先し、名前付き型のような `%` 付きトップレベル名だけモジュールスコープへフォールバックする。
+ */
 const resolveRefs = (
   refs: readonly IdentifierRef[],
   moduleScope: Scope,
@@ -192,6 +274,18 @@ const resolveRefs = (
   }
 };
 
+/**
+ * 単一の参照をシンボルへ解決する。
+ *
+ * @param ref 解決対象の識別子参照。
+ * @param moduleScope モジュールスコープ。
+ * @param functionScope 関数内にいる場合の関数スコープ。
+ * @returns 解決できた内部シンボル。未解決なら undefined。
+ *
+ * @remarks
+ * `LabelRef` は `br label %exit` のような参照を表すが、ラベル定義は parser で `exit` として保持される。
+ * そのためラベル参照だけは `%` を外して関数スコープを引く。
+ */
 const resolveRef = (
   ref: IdentifierRef,
   moduleScope: Scope,
@@ -204,9 +298,26 @@ const resolveRef = (
   return undefined;
 };
 
+/**
+ * ラベル参照名をラベル定義名へ正規化する。
+ *
+ * @param ref `LabelRef` として収集された識別子出現。
+ * @returns 先頭の `%` を取り除いたラベル名。
+ */
 const labelNameOf = (ref: IdentifierRef): string =>
   ref.name.startsWith("%") ? ref.name.slice(1) : ref.name;
 
+/**
+ * 命令結果の型を推定する。
+ *
+ * @param source `parseModule` に渡したものと同じ元ソース。
+ * @param instruction 型を推定する命令。
+ * @returns 推定できた LLVM IR 型。推定できない場合は undefined。
+ *
+ * @remarks
+ * parser は命令内部を構造化しないため、ここでは元ソースの命令行からオペコード直後の型トークンだけを読む。
+ * `add i32` や `load i32` のような単純な形を対象にし、複雑な型構文は将来の型パーサへ委ねる。
+ */
 const inferInstructionResultType = (
   source: string | undefined,
   instruction: Instruction,
@@ -221,6 +332,17 @@ const inferInstructionResultType = (
   return afterOpcode.match(LEADING_TYPE_PATTERN)?.[1];
 };
 
+/**
+ * 識別子の直前にある型トークンを推定する。
+ *
+ * @param source `parseModule` に渡したものと同じ元ソース。
+ * @param ref 型を推定する識別子出現。
+ * @returns 識別子直前の型トークン。推定できない場合は undefined。
+ *
+ * @remarks
+ * 主な用途は関数引数 `i32 %x` の型取得。
+ * 行頭から識別子直前までだけを見るため、別行の型や複雑な属性列には踏み込まない。
+ */
 const inferTypeBefore = (source: string | undefined, ref: IdentifierRef): string | undefined => {
   if (!source) return undefined;
   const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
@@ -228,6 +350,20 @@ const inferTypeBefore = (source: string | undefined, ref: IdentifierRef): string
   return before.match(TYPE_PATTERN)?.[1];
 };
 
+/**
+ * 収集済みの可変データから問い合わせ用の {@link SemanticModel} を作る。
+ *
+ * @param mutableSymbols 解析中に登録した可変シンボル列。
+ * @param occurrences 位置問い合わせに使う識別子出現列。
+ * @param diagnostics 解析中に収集した意味診断。
+ * @param entries documentSymbol 構築に使うトップレベルエントリ列。
+ * @param functionScopes 関数名から関数スコープへの対応。
+ * @returns 公開用の意味モデル。
+ *
+ * @remarks
+ * 構築中は参照列へ追記するため可変配列を使う。
+ * 公開時にはソース順に並べた読み取り専用の値へ写し、呼び出し側が内部状態を変更できないようにする。
+ */
 const makeModel = (
   mutableSymbols: readonly MutableSymbol[],
   occurrences: readonly Occurrence[],
@@ -258,6 +394,12 @@ const makeModel = (
   };
 };
 
+/**
+ * 内部の可変シンボルを公開用の読み取り専用シンボルへ写す。
+ *
+ * @param symbol 解析中に使っていた可変シンボル。
+ * @returns 参照列をソース順へ並べた公開シンボル。
+ */
 const freezeSymbol = (symbol: MutableSymbol): SemanticSymbol => ({
   id: symbol.id,
   name: symbol.name,
@@ -269,6 +411,16 @@ const freezeSymbol = (symbol: MutableSymbol): SemanticSymbol => ({
   ...(symbol.type ? { type: symbol.type } : {}),
 });
 
+/**
+ * AST のトップレベル定義から documentSymbol 用の階層を作る。
+ *
+ * @param entries parser が返したトップレベルエントリ列。
+ * @param functionScopes 関数名から関数スコープへの対応。
+ * @returns documentSymbol へ変換しやすい階層シンボル列。
+ *
+ * @remarks
+ * 関数定義だけは、関数スコープに登録された引数、ラベル、SSA ローカル値を子要素として持つ。
+ */
 const makeDocumentSymbols = (
   entries: readonly TopLevelEntry[],
   functionScopes: ReadonlyMap<string, Scope>,
@@ -290,6 +442,13 @@ const makeDocumentSymbols = (
   return docs;
 };
 
+/**
+ * 関数スコープのシンボルを、ソースに現れた順で documentSymbol の子要素へ変換する。
+ *
+ * @param entry 子要素を作る関数定義。
+ * @param scope 関数定義に対応するスコープ。
+ * @returns 関数の子として表示する documentSymbol 列。
+ */
 const functionChildren = (
   entry: FunctionDefinition,
   scope: Scope | undefined,
@@ -312,23 +471,56 @@ const functionChildren = (
     }));
 };
 
+/**
+ * 基本ブロック内で定義を導入する参照だけを取り出す。
+ *
+ * @param block 対象の基本ブロック。
+ * @returns ラベル定義と命令結果の出現列。
+ */
 const refsInBlock = (block: BasicBlock): IdentifierRef[] => [
   ...(block.label ? [block.label] : []),
   ...block.instructions.flatMap((instruction) => (instruction.result ? [instruction.result] : [])),
 ];
 
+/**
+ * 同じシンボルを documentSymbol の子に複数回出さないための述語。
+ *
+ * @param symbol 重複判定するシンボル。
+ * @param seen すでに採用したシンボル ID の集合。
+ * @returns 初出なら true、既出なら false。
+ */
 const uniqueSymbol = (symbol: MutableSymbol, seen: Set<SymbolId>): boolean => {
   if (seen.has(symbol.id)) return false;
   seen.add(symbol.id);
   return true;
 };
 
+/**
+ * 位置が半開区間の範囲内にあるかを判定する。
+ *
+ * @param range 判定対象の半開区間。
+ * @param position 照会する位置。
+ * @returns `position` が `range` 内なら true。
+ */
 const contains = (range: Range, position: Position): boolean =>
   (position.offset > range.start.offset ||
     (position.offset === range.start.offset && position.line >= range.start.line)) &&
   position.offset < range.end.offset;
 
+/**
+ * 識別子参照をソース位置で比較する。
+ *
+ * @param a 比較する参照。
+ * @param b 比較する参照。
+ * @returns `a` が前なら負数、同じなら 0、後なら正数。
+ */
 const compareRefs = (a: IdentifierRef, b: IdentifierRef): number =>
   a.range.start.offset - b.range.start.offset;
 
+/**
+ * 文字列を正規表現リテラルとして安全に埋め込むためにエスケープする。
+ *
+ * @param value 正規表現へ埋め込む文字列。
+ * @returns 正規表現メタ文字をエスケープした文字列。
+ */
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
