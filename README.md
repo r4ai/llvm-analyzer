@@ -2,7 +2,8 @@
 
 LLVM IR (`.ll`) 向けの LSP 機能を提供する VSCode 拡張機能。
 
-現在はシンタックスハイライトと、純粋ドメイン層の parser / analyzer を提供。LSP 経由の定義ジャンプ・参照検索・ホバー・アウトライン・診断・補完・リネームを順次実装予定。
+現在はシンタックスハイライトに加えて、LSP 経由の hover / definition / references / documentSymbol / semanticTokens / diagnostics / completion / rename / foldingRange を提供する。
+解析ロジックは純粋ドメイン層の parser / analyzer として分離している。
 
 - 全体設計: [docs/design.md](docs/design.md)
 - ロードマップ: [docs/roadmap.md](docs/roadmap.md)
@@ -20,13 +21,16 @@ pnpm format             # oxfmt --check
 pnpm typecheck          # tsc
 pnpm test               # vitest
 pnpm test:coverage      # vitest + カバレッジ（v8）
+pnpm --filter llvm-analyzer-vscode build      # 拡張機能と language-server をバンドル
+pnpm --filter llvm-analyzer-vscode test:e2e   # VSCode Extension Host で hover / definition を検証
+pnpm --filter llvm-analyzer-vscode package    # .vsix を作成
 ```
 
 ### 拡張機能の動作確認
 
 VSCode で本リポジトリを開き、`F5`（Extension Development Host）を起動して
 [packages/vscode-extension/examples/hello.ll](packages/vscode-extension/examples/hello.ll) を開くと、
-シンタックスハイライトが確認できる。
+シンタックスハイライトと LSP 機能が確認できる。
 
 ## サプライチェーン対策
 

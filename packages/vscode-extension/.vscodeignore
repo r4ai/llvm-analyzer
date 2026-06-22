@@ -1,0 +1,8 @@
+dist/test/**
+dist/**/*.map
+.vscode-test/**
+test/**
+src/**
+esbuild.mjs
+tsconfig.json
+*.vsix

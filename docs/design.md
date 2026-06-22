@@ -50,7 +50,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 
 ### language-server（アダプタ）
 
-- `vscode-languageserver/node` + `vscode-languageserver-textdocument`。stdio/IPC で起動。
+- `vscode-languageserver/node` + `vscode-languageserver-textdocument`。VSCode 拡張から IPC で起動。
 - ドキュメント変更をデバウンスして全体再パース（初期はインクリメンタル無し）。
 - capability ↔ analyzer クエリの対応:
   - `hover` ← `symbolAt` + 型/ドキュメント辞書
@@ -58,15 +58,15 @@ parser/analyzer は `vscode*` に一切依存しない。
   - `documentSymbol` ← `documentSymbols`
   - `semanticTokens/full` ← トークン分類
   - `publishDiagnostics` ← `diagnostics`
-  - `completion` ← オペコード/型キーワード/スコープ内識別子
-  - `rename` / `prepareRename` ← 参照インデックス
+  - `completion` ← 基本キーワード/オペコード/スコープ内識別子
+  - `rename` ← 参照インデックス
   - `foldingRange` ← 関数/ブロック範囲
 
 ### vscode-extension（配布物）
 
 - `contributes.languages`（id `llvm`, `.ll`）/ `contributes.grammars`（`source.llvm`）/ `language-configuration.json`。
 - TextMate文法は **LSP無しでも色が付く土台**。将来は Semantic Tokens で強調を上書き。
-- 将来 `src/extension.ts` で `vscode-languageclient/node` を使い language-server を子プロセス起動。
+- `src/extension.ts` で `vscode-languageclient/node` を使い、esbuild で同梱した language-server を子プロセス起動する。
 
 ## LLVM IR固有のパース勘所
 
@@ -79,4 +79,6 @@ parser/analyzer は `vscode*` に一切依存しない。
 
 ## 配布
 
-`@vscode/vsce` で `.vsix` をパッケージ。バンドルは language-server 導入時に esbuild を採用予定。
+`@vscode/vsce` で `.vsix` をパッケージする。
+`packages/vscode-extension` の `pnpm build` は extension と language-server と E2E suite を `dist/` へバンドルする。
+`pnpm --filter llvm-analyzer-vscode package` で `llvm-analyzer-vscode.vsix` を作成する。

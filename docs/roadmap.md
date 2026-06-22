@@ -19,12 +19,12 @@
 - [x] **analyzer: 意味モデル**（2026-06-22）
   - シンボル表 / スコープ（モジュール・関数）/ 定義参照インデックス / 型解決 / 診断
   - オペコード・型のドキュメント辞書
-- [ ] **language-server: LSPサーバ**
+- [x] **language-server: LSPサーバ**（2026-06-22）
   - hover / definition / references / documentSymbol / semanticTokens / publishDiagnostics / completion / rename / foldingRange
   - 変更のデバウンス再パース
-- [ ] **vscode-extension: LSPクライアント配線**
+- [x] **vscode-extension: LSPクライアント配線**（2026-06-22）
   - `vscode-languageclient/node` で language-server を起動。esbuild バンドル導入
-- [ ] **E2E + 配布**
+- [x] **E2E + 配布**（2026-06-22）
   - `@vscode/test-electron` によるE2E（`.ll` を開いて hover/definition を検証）
   - README 充実、`@vscode/vsce` で `.vsix` パッケージ
 
