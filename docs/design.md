@@ -48,7 +48,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   - 関数スコープ: ローカルSSA値 `%x`（パラメータ含む）、ラベル。
 - **定義/参照インデックス**: 各シンボルの定義位置と全参照位置（Go to Definition / Find References / Rename の土台）。
 - **型解決**: SSA値の型（Hover表示用）。parser の AST は命令内部を粗く保持するため、`analyze(ast, { source })` で元ソースを渡された場合に、関数引数と命令結果の直近型構文を `parseLlvmType` で読み、表示用文字列として安全に推定する。target datalayout に依存するサイズ計算や verifier 相当の型検査は扱わない。
-- **診断**: 未定義値の参照、重複定義、同一命令内の自己参照、終端命令後の通常命令など（LLVM verifier 全体は再実装しない）。metadata attachment key、関数宣言の引数名、関数スコープの use-list order directive など、LangRef 上の非参照・非命令は誤診断しない。language-server で parser の構文診断とマージする。
+- **診断**: 未定義値の参照、重複定義、同一命令内の自己参照、終端命令後の通常命令など（LLVM verifier 全体は再実装しない）。metadata attachment key、関数宣言の引数名、関数スコープの use-list order directive など、LangRef 上の非参照・非命令は誤診断しない。language-server で parser の構文診断とマージし、parser / analyzer / external verifier ごとに有効化と severity を適用する。
 - **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
 - **CFG / 呼び出し情報（予定）**: 関数単位で basic block successor と直接呼び出し先を抽出する。`br` / `switch` / `invoke` / `callbr` など静的に分かる範囲を対象にし、間接分岐や関数ポインタの完全解決は行わない。
 - オペコード/型のドキュメント辞書を持ち、Hover/Completion で再利用。
@@ -82,7 +82,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - TextMate文法は **LSP無しでも色が付く土台**。将来は Semantic Tokens で強調を上書き。
 - `src/extension.ts` で `vscode-languageclient/node` を使い、esbuild で同梱した language-server を子プロセス起動する。
 - CFG 表示など VSCode 固有の UI は extension 側の command として実装し、グラフ構築自体は analyzer の純粋モデルに置く。初期表示形式は Mermaid または DOT を優先し、Webview の作り込みは後続に回す。
-- 診断レベル、inlay hints、format、document link、verifier などの利用者設定は contributes.configuration に追加し、language-server へ渡す。
+- 診断レベル、inlay hints、format、document link、verifier などの利用者設定は contributes.configuration に追加し、language-server へ渡す。診断レベル設定は language-server のアダプタ層で解釈し、parser / analyzer の純粋層には持ち込まない。
 
 ## LLVM IR固有のパース勘所
 

@@ -24,6 +24,13 @@ import {
   type DocumentSnapshot,
 } from "./lsp/features.ts";
 import {
+  defaultDiagnosticSettings,
+  mergeVerifierDiagnostics,
+  normalizeDiagnosticSettings,
+  shouldRunVerifierDiagnostics,
+  type DiagnosticSettings,
+} from "./lsp/diagnostics.ts";
+import {
   defaultVerifierSettings,
   runExternalVerifier,
   type ExternalVerifierSettings,
@@ -31,6 +38,7 @@ import {
 
 const DIAGNOSTIC_DEBOUNCE_MS = 150;
 const VERIFIER_CONFIG_SECTION = "llvm-analyzer.verifier";
+const DIAGNOSTICS_CONFIG_SECTION = "llvm-analyzer.diagnostics";
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -40,6 +48,7 @@ const verifierTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const verifierControllers = new Map<string, AbortController>();
 let supportsConfiguration = false;
 let verifierSettingsCache: Promise<ExternalVerifierSettings> | undefined;
+let diagnosticSettingsCache: Promise<DiagnosticSettings> | undefined;
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
   supportsConfiguration = params.capabilities.workspace?.configuration === true;
@@ -64,6 +73,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
 connection.onDidChangeConfiguration(() => {
   verifierSettingsCache = undefined;
+  diagnosticSettingsCache = undefined;
   for (const document of documents.all()) {
     scheduleAnalysis(document);
   }
@@ -132,9 +142,19 @@ function scheduleAnalysis(document: TextDocument): void {
     setTimeout(() => {
       const snapshot = makeDocumentSnapshot(document.uri, document.getText(), document.version);
       snapshots.set(document.uri, snapshot);
-      const baseDiagnostics = getDiagnostics(snapshot);
-      connection.sendDiagnostics({ uri: document.uri, diagnostics: baseDiagnostics });
-      scheduleVerifier(snapshot, baseDiagnostics);
+      void diagnosticSettings()
+        .then((settings) => {
+          if (!isSnapshotCurrent(snapshot)) return;
+          const baseDiagnostics = getDiagnostics(snapshot, settings);
+          connection.sendDiagnostics({ uri: document.uri, diagnostics: baseDiagnostics });
+          scheduleVerifier(snapshot, baseDiagnostics, settings);
+        })
+        .catch(() => {
+          if (!isSnapshotCurrent(snapshot)) return;
+          const baseDiagnostics = getDiagnostics(snapshot);
+          connection.sendDiagnostics({ uri: document.uri, diagnostics: baseDiagnostics });
+          scheduleVerifier(snapshot, baseDiagnostics, defaultDiagnosticSettings);
+        });
       timers.delete(document.uri);
     }, DIAGNOSTIC_DEBOUNCE_MS),
   );
@@ -158,14 +178,16 @@ function clearPendingVerifier(uri: string): void {
 function scheduleVerifier(
   snapshot: DocumentSnapshot,
   baseDiagnostics: readonly Diagnostic[],
+  settingsForDiagnostics: DiagnosticSettings,
 ): void {
+  if (!shouldRunVerifierDiagnostics(settingsForDiagnostics)) return;
   void verifierSettings()
     .then((settings) => {
       if (!settings.enabled) return;
       if (!isSnapshotCurrent(snapshot)) return;
       const timer = setTimeout(() => {
         verifierTimers.delete(snapshot.uri);
-        runVerifier(snapshot, baseDiagnostics, settings);
+        runVerifier(snapshot, baseDiagnostics, settings, settingsForDiagnostics);
       }, settings.debounceMs);
       verifierTimers.set(snapshot.uri, timer);
     })
@@ -178,6 +200,7 @@ function runVerifier(
   snapshot: DocumentSnapshot,
   baseDiagnostics: readonly Diagnostic[],
   settings: ExternalVerifierSettings,
+  settingsForDiagnostics: DiagnosticSettings,
 ): void {
   if (!isSnapshotCurrent(snapshot)) return;
   const controller = new AbortController();
@@ -189,7 +212,7 @@ function runVerifier(
       if (!isSnapshotCurrent(snapshot)) return;
       connection.sendDiagnostics({
         uri: snapshot.uri,
-        diagnostics: [...baseDiagnostics, ...diagnostics],
+        diagnostics: mergeVerifierDiagnostics(baseDiagnostics, diagnostics, settingsForDiagnostics),
       });
     })
     .catch(() => {
@@ -209,6 +232,11 @@ function verifierSettings(): Promise<ExternalVerifierSettings> {
   return verifierSettingsCache;
 }
 
+function diagnosticSettings(): Promise<DiagnosticSettings> {
+  diagnosticSettingsCache ??= loadDiagnosticSettings();
+  return diagnosticSettingsCache;
+}
+
 async function loadVerifierSettings(): Promise<ExternalVerifierSettings> {
   if (!supportsConfiguration) return defaultVerifierSettings;
   const raw = await connection.workspace.getConfiguration(VERIFIER_CONFIG_SECTION);
@@ -221,6 +249,12 @@ async function loadVerifierSettings(): Promise<ExternalVerifierSettings> {
     timeoutMs: numberSetting(raw.timeoutMs, defaultVerifierSettings.timeoutMs),
     maxFileBytes: numberSetting(raw.maxFileBytes, defaultVerifierSettings.maxFileBytes),
   };
+}
+
+async function loadDiagnosticSettings(): Promise<DiagnosticSettings> {
+  if (!supportsConfiguration) return defaultDiagnosticSettings;
+  const raw = await connection.workspace.getConfiguration(DIAGNOSTICS_CONFIG_SECTION);
+  return normalizeDiagnosticSettings(raw);
 }
 
 function snapshotFor(uri: string): DocumentSnapshot | undefined {

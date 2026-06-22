@@ -91,6 +91,54 @@
           "default": 1000000,
           "minimum": 0,
           "description": "自動 verifier を実行する最大ファイルサイズ（UTF-8 バイト数）。"
+        },
+        "llvm-analyzer.diagnostics.parser.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "parser 由来の構文診断を有効にする。"
+        },
+        "llvm-analyzer.diagnostics.parser.severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "error",
+          "description": "parser 由来の構文診断の重大度。"
+        },
+        "llvm-analyzer.diagnostics.analyzer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "analyzer 由来の意味診断を有効にする。"
+        },
+        "llvm-analyzer.diagnostics.analyzer.severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "error",
+          "description": "analyzer 由来の意味診断の重大度。"
+        },
+        "llvm-analyzer.diagnostics.verifier.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "外部 verifier 由来の診断を有効にする。無効時は verifier プロセスも起動しない。"
+        },
+        "llvm-analyzer.diagnostics.verifier.severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint"
+          ],
+          "default": "error",
+          "description": "外部 verifier 由来の診断の重大度。"
         }
       }
     }

@@ -28,6 +28,7 @@ export const activate = async (context: ExtensionContext): Promise<void> => {
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: "llvm" }],
     synchronize: {
+      configurationSection: ["llvm-analyzer.verifier", "llvm-analyzer.diagnostics"],
       fileEvents: workspace.createFileSystemWatcher("**/*.ll"),
     },
   };

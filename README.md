@@ -8,6 +8,7 @@ LLVM IR (`.ll`) 向けの LSP 機能を提供する VSCode 拡張機能。
 LLVM IR 型構文は scalar / pointer / vector / array / struct / function type / named type / opaque struct を軽量に AST 化し、複合型の hover / completion 表示にも利用する。
 診断は LSP 用の軽量な名前解決と最小限の well-formedness に絞り、LLVM verifier 全体の再実装はしない。
 PATH 上に `llvm-as` がある場合は、編集停止後に外部 LLVM verifier を実行し、追加診断として表示する。
+parser / analyzer / external verifier の診断は、ソースごとに有効化と重大度を設定できる。
 
 - 全体設計: [docs/design.md](docs/design.md)
 - ロードマップ: [docs/roadmap.md](docs/roadmap.md)

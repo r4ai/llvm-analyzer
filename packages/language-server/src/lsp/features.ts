@@ -25,6 +25,11 @@ import {
   type WorkspaceEdit,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import {
+  applyDiagnosticSettings,
+  defaultDiagnosticSettings,
+  type DiagnosticSettings,
+} from "./diagnostics.ts";
 
 export const semanticTokenLegend: SemanticTokensLegend = {
   tokenTypes: [
@@ -149,18 +154,25 @@ export const getDocumentSymbols = (snapshot: DocumentSnapshot): DocumentSymbol[]
     })),
   }));
 
-/** 構文診断と意味診断を LSP 診断へ変換する。 */
-export const getDiagnostics = (snapshot: DocumentSnapshot): Diagnostic[] => [
-  ...snapshot.parse.diagnostics.map(fromParseDiagnostic),
-  ...snapshot.model.diagnostics().map((diagnostic) => ({
-    range: toLspRange(diagnostic.range),
-    message: diagnostic.message,
-    severity:
-      diagnostic.severity === "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
-    source: "llvm-analyzer",
-    code: diagnostic.code,
-  })),
-];
+/** 構文診断と意味診断を LSP 診断へ変換し、診断設定を適用する。 */
+export const getDiagnostics = (
+  snapshot: DocumentSnapshot,
+  settings: DiagnosticSettings = defaultDiagnosticSettings,
+): Diagnostic[] =>
+  applyDiagnosticSettings(
+    [
+      ...snapshot.parse.diagnostics.map(fromParseDiagnostic),
+      ...snapshot.model.diagnostics().map((diagnostic) => ({
+        range: toLspRange(diagnostic.range),
+        message: diagnostic.message,
+        severity:
+          diagnostic.severity === "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
+        source: "llvm-analyzer",
+        code: diagnostic.code,
+      })),
+    ],
+    settings,
+  );
 
 /** 補完候補を返す。シンボルと基本命令・トップレベル語を候補にする。 */
 export const getCompletionItems = (
@@ -258,7 +270,7 @@ const fromParseDiagnostic = (diagnostic: ParseDiagnostic): Diagnostic => ({
   range: toLspRange(diagnostic.range),
   message: diagnostic.message,
   severity: diagnostic.severity === "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
-  source: "llvm-analyzer",
+  source: "llvm-parser",
 });
 
 const toLspSymbolKind = (kind: SymbolKind): LspSymbolKind => {

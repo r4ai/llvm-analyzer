@@ -43,8 +43,8 @@
   - `parseLlvmType(source)` で LLVM IR の型構文を AST 化し、`formatLlvmType(type)` で表示用文字列へ戻す
   - scalar / pointer / vector / array / struct / function type / named type / opaque struct、`ptr addrspace(N)`、typed pointer、可変長引数、packed struct を対象にする
   - analyzer の関数引数・命令結果の軽量型推定へ接続し、hover / completion / inlay hints / diagnostics の基盤にする
-- [ ] **診断レベル設定**
-  - parser / analyzer / external verifier の診断ソースごとに有効化と severity を設定可能にする
+- [x] **診断レベル設定**（2026-06-22）
+  - parser / analyzer / external verifier の診断ソースごとに有効化と severity を設定可能にした
   - 生成途中の IR や独自方言を扱うための抑制設定を language-server 側で提供する
 - [ ] **Inlay Hints**
   - SSA 値の推定型や安全に計算できる補助情報を `textDocument/inlayHint` で表示する
