@@ -1,0 +1,37 @@
+{
+  "name": "llvm-analyzer-vscode",
+  "displayName": "LLVM IR",
+  "version": "0.0.1",
+  "private": true,
+  "description": "LLVM IR language support: syntax highlighting (LSP features in progress).",
+  "categories": [
+    "Programming Languages"
+  ],
+  "license": "MIT",
+  "publisher": "r4ai",
+  "contributes": {
+    "languages": [
+      {
+        "id": "llvm",
+        "aliases": [
+          "LLVM IR",
+          "llvm"
+        ],
+        "extensions": [
+          ".ll"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "llvm",
+        "scopeName": "source.llvm",
+        "path": "./syntaxes/llvm.tmLanguage.json"
+      }
+    ]
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  }
+}
