@@ -1,39 +1,43 @@
 # llvm-analyzer
 
-LLVM IR (`.ll`) を読むための VSCode 拡張機能です。
-TextMate 文法によるシンタックスハイライトに加えて、LLVM IR 向けの Language Server を同梱しています。
+`llvm-analyzer` は LLVM IR (`.ll`) 向けの VSCode 拡張機能です。
+シンタックスハイライトと Language Server を同梱し、生成済み IR や手書き IR を VSCode 上で読みやすくします。
 
-このリポジトリは pnpm workspace のモノレポです。
-LLVM IR の parser と analyzer は VSCode や LSP に依存しない純粋なパッケージとして分離し、拡張機能と language server はその結果をエディタ機能へ変換します。
+この README は、利用者向けの情報と開発者向けの情報を分けています。
+拡張機能を使うだけなら「利用者向け」だけを読めば足ります。
+リポジトリを変更する場合は「開発者向け」へ進んでください。
 
-## できること
+## 利用者向け
 
-`llvm-analyzer` は、生成済み IR や手書き IR を VSCode 上で追いやすくすることを目的にしています。
-LLVM verifier 全体を TypeScript で再実装するのではなく、編集時に効く軽量な構造解析と名前解決を提供します。
+### 機能
 
-- `.ll` ファイルのシンタックスハイライト。
-- hover、定義ジャンプ、参照検索、Document Symbol、Workspace Symbol。
-- Semantic Tokens、補完、Rename、Folding Range。
-- parser、analyzer、外部 LLVM verifier の診断。
-- SSA 値の推定型を表示する Inlay Hints。
-- `source_filename` と `!DIFile` から実在ファイルを開く Document Link。
-- `call`、`invoke`、`callbr` の直接呼び出しを辿る Call Hierarchy。
-- 関数単位の Control Flow Graph を Mermaid として表示するコマンド。
-- 行頭、行末空白と関数内インデントを整える Format と Range Format。
-- 未定義の近いグローバル名やラベル名への置換、終端命令後の命令削除を提示する Quick Fix。
+| 分類         | 機能                                                                   |
+| ------------ | ---------------------------------------------------------------------- |
+| 表示         | `.ll` ファイルのシンタックスハイライト、Semantic Tokens、Folding Range |
+| 読解         | hover、定義ジャンプ、参照検索、Document Symbol、Workspace Symbol       |
+| 編集         | 補完、Rename、Format、Range Format                                     |
+| 診断         | parser 診断、analyzer 診断、外部 LLVM verifier 診断                    |
+| 補助表示     | SSA 値の推定型を表示する Inlay Hints                                   |
+| ファイル参照 | `source_filename` と `!DIFile` から実在ファイルを開く Document Link    |
+| 呼び出し関係 | `call`、`invoke`、`callbr` の直接呼び出しを辿る Call Hierarchy         |
+| 制御フロー   | 現在関数の Control Flow Graph を Mermaid として表示するコマンド        |
+| Quick Fix    | 未定義の近いグローバル名やラベル名への置換、終端命令後の命令削除       |
 
-## 解析対象
+### 対応する LLVM IR
 
-parser は最新の LLVM LangRef を主な対象にします。
-opaque pointer の `ptr` を標準として扱い、古い typed pointer 記法も寛容にパースします。
+| 対象              | 対応                                                                                                       |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| ポインタ          | opaque pointer の `ptr` を標準として扱う。古い typed pointer 記法も寛容にパースする。                      |
+| 型構文            | scalar、pointer、vector、array、struct、function type、named type、opaque struct を軽量な AST として扱う。 |
+| 最新 LangRef 差分 | `ptrtoaddr`、byte type `bN`、debug record、comdat、use-list order、`ptr addrspace(N)` 引数を扱う。         |
+| 複数行構文        | 複数行グローバル初期化子、複数行 debug record、複数行 switch を構造解析する。                              |
+| ラベル参照        | PHI incoming と `blockaddress` のラベル参照を SSA 値参照と区別する。                                       |
 
-現在は、`ptrtoaddr`、byte type `bN`、debug record、comdat、use-list order、複数行グローバル初期化子、`ptr addrspace(N)` 引数、PHI と `blockaddress` のラベル参照などを構造解析します。
-型構文は scalar、pointer、vector、array、struct、function type、named type、opaque struct を軽量な AST として扱います。
+診断は編集時に効く軽量な構造解析と名前解決に絞っています。
+未定義参照、重複定義、同一命令内の自己参照、終端命令後の通常命令などは検出します。
+ただし、target datalayout に依存する型検査や LLVM verifier 相当の完全な検証は扱いません。
 
-診断は LSP で即時に返せる範囲に絞っています。
-未定義参照、重複定義、同一命令内の自己参照、終端命令後の通常命令などは検出しますが、target datalayout に依存する型検査や LLVM verifier 相当の完全な検証は扱いません。
-
-## すぐ試す
+### 動作確認
 
 このリポジトリから拡張機能を動かす場合は、VSCode の Extension Development Host を使います。
 
@@ -54,49 +58,56 @@ pnpm --filter llvm-analyzer-vscode package
 
 生成物は `packages/vscode-extension/llvm-analyzer-vscode.vsix` です。
 
-## LLVM verifier 連携
+### LLVM verifier 連携
 
-既定では、PATH 上に `llvm-as` がある場合に外部 verifier 診断を追加します。
-language server は編集停止後に `llvm-as -o {devNull} -` をバックグラウンドで実行し、parser と analyzer の診断へ結果をマージします。
+| 項目                 | 内容                                                                         |
+| -------------------- | ---------------------------------------------------------------------------- |
+| 既定のコマンド       | `llvm-as -o {devNull} -`                                                     |
+| 実行条件             | PATH 上に `llvm-as` があり、外部 verifier 診断が有効であること               |
+| 実行タイミング       | 編集停止後に language server がバックグラウンドで実行する                    |
+| `llvm-as` がない場合 | 外部 verifier 診断だけを出さず、parser と analyzer の診断を使う              |
+| 代替コマンド         | `llvm-analyzer.verifier.command` と `llvm-analyzer.verifier.args` で変更する |
 
-`llvm-as` が見つからない場合、外部 verifier 診断だけを出さずに処理を続けます。
-parser と analyzer の診断、シンタックスハイライト、定義ジャンプなどはそのまま使えます。
+たとえば `opt -passes=verify -disable-output -` のような verifier コマンドに差し替えられます。
 
-`llvm-analyzer.verifier.command` と `llvm-analyzer.verifier.args` を変更すると、別の verifier コマンドも使えます。
-たとえば `opt -passes=verify -disable-output -` のような構成にできます。
+### 設定
 
-## 設定
+| 設定                                          | 内容                                             |
+| --------------------------------------------- | ------------------------------------------------ |
+| `llvm-analyzer.verifier.enabled`              | 外部 verifier 連携を有効にする。                 |
+| `llvm-analyzer.verifier.command`              | verifier として実行するコマンド。                |
+| `llvm-analyzer.verifier.args`                 | verifier コマンドへ渡す引数。                    |
+| `llvm-analyzer.verifier.debounceMs`           | 編集停止後に verifier を起動するまでの待ち時間。 |
+| `llvm-analyzer.verifier.timeoutMs`            | verifier の実行を打ち切るまでの時間。            |
+| `llvm-analyzer.verifier.maxFileBytes`         | 自動 verifier を実行する最大ファイルサイズ。     |
+| `llvm-analyzer.diagnostics.parser.enabled`    | parser 由来の構文診断を有効にする。              |
+| `llvm-analyzer.diagnostics.parser.severity`   | parser 由来の構文診断の重大度。                  |
+| `llvm-analyzer.diagnostics.analyzer.enabled`  | analyzer 由来の意味診断を有効にする。            |
+| `llvm-analyzer.diagnostics.analyzer.severity` | analyzer 由来の意味診断の重大度。                |
+| `llvm-analyzer.diagnostics.verifier.enabled`  | 外部 verifier 由来の診断を有効にする。           |
+| `llvm-analyzer.diagnostics.verifier.severity` | 外部 verifier 由来の診断の重大度。               |
+| `llvm-analyzer.inlayHints.types.enabled`      | SSA 値の推定型 Inlay Hints を表示する。          |
 
-VSCode の設定から次の項目を変更できます。
+## 開発者向け
 
-- `llvm-analyzer.verifier.enabled`：外部 verifier 連携を有効にする。
-- `llvm-analyzer.verifier.command`：verifier として実行するコマンド。
-- `llvm-analyzer.verifier.args`：verifier コマンドへ渡す引数。
-- `llvm-analyzer.verifier.debounceMs`：編集停止後に verifier を起動するまでの待ち時間。
-- `llvm-analyzer.verifier.timeoutMs`：verifier の実行を打ち切るまでの時間。
-- `llvm-analyzer.verifier.maxFileBytes`：自動 verifier を実行する最大ファイルサイズ。
-- `llvm-analyzer.diagnostics.parser.enabled`：parser 由来の構文診断を有効にする。
-- `llvm-analyzer.diagnostics.parser.severity`：parser 由来の構文診断の重大度。
-- `llvm-analyzer.diagnostics.analyzer.enabled`：analyzer 由来の意味診断を有効にする。
-- `llvm-analyzer.diagnostics.analyzer.severity`：analyzer 由来の意味診断の重大度。
-- `llvm-analyzer.diagnostics.verifier.enabled`：外部 verifier 由来の診断を有効にする。
-- `llvm-analyzer.diagnostics.verifier.severity`：外部 verifier 由来の診断の重大度。
-- `llvm-analyzer.inlayHints.types.enabled`：SSA 値の推定型 Inlay Hints を表示する。
+### 設計方針
 
-## リポジトリ構成
-
-```text
-packages/
-├── parser/           # source -> tokens -> AST。副作用を持たない LLVM IR parser。
-├── analyzer/         # AST -> 意味モデル。シンボル表、参照、型推定、診断を扱う。
-├── language-server/  # analyzer を LSP へ接続するアダプタ。
-└── vscode-extension/ # VSCode 拡張機能、TextMate 文法、設定、E2E。
-```
+このリポジトリは pnpm workspace のモノレポです。
+LLVM IR の parser と analyzer は VSCode や LSP に依存しない純粋なパッケージとして分離し、拡張機能と language server はその結果をエディタ機能へ変換します。
 
 依存方向は `vscode-extension -> language-server -> analyzer -> parser` です。
 parser と analyzer は VSCode API に依存しません。
 
-## 開発
+### リポジトリ構成
+
+| パッケージ                  | 責務                                                         |
+| --------------------------- | ------------------------------------------------------------ |
+| `packages/parser`           | `source -> tokens -> AST`。副作用を持たない LLVM IR parser。 |
+| `packages/analyzer`         | `AST -> 意味モデル`。シンボル表、参照、型推定、診断を扱う。  |
+| `packages/language-server`  | analyzer を LSP へ接続するアダプタ。                         |
+| `packages/vscode-extension` | VSCode 拡張機能、TextMate 文法、設定、E2E。                  |
+
+### 開発環境
 
 Node.js、pnpm、lefthook、pinact は [mise](https://mise.jdx.dev/) で管理します。
 
@@ -105,34 +116,36 @@ mise install
 pnpm install
 ```
 
-主なコマンドは次の通りです。
-
-```sh
-pnpm lint
-pnpm format
-pnpm typecheck
-pnpm test
-pnpm test:coverage
-pnpm build
-pnpm --filter llvm-analyzer-vscode test:e2e
-pnpm --filter llvm-analyzer-vscode package
-```
-
 `pnpm install` 時に lefthook の Git hook が設定されます。
-CI では lint、format、typecheck、test、build、pinact の検査を実行します。
 
-## ドキュメント
+### コマンド
 
-- [docs/design.md](docs/design.md)：アーキテクチャ、パッケージ責務、LSP 機能の対応関係。
-- [docs/roadmap.md](docs/roadmap.md)：実装済みフェーズと残タスクの管理。
-- [docs/plans/](docs/plans/)：各フェーズの実行ログ。
-- [packages/vscode-extension/README.md](packages/vscode-extension/README.md)：VSCode 拡張機能としての機能と設定。
+| コマンド                                      | 用途                                      |
+| --------------------------------------------- | ----------------------------------------- |
+| `pnpm lint`                                   | oxlint を実行する。                       |
+| `pnpm format`                                 | oxfmt の check を実行する。               |
+| `pnpm typecheck`                              | TypeScript の型検査を実行する。           |
+| `pnpm test`                                   | Vitest を実行する。                       |
+| `pnpm test:coverage`                          | Vitest とカバレッジ計測を実行する。       |
+| `pnpm build`                                  | workspace 全体の build を実行する。       |
+| `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host で E2E を実行する。 |
+| `pnpm --filter llvm-analyzer-vscode package`  | VSCode 拡張機能の `.vsix` を作成する。    |
 
-## サプライチェーン対策
+### CI とサプライチェーン対策
 
-依存関係と CI の更新は、意図しない実行や差し替えを避ける前提で管理しています。
+| 対象                | 対策                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| 依存解決            | CI とローカル導入で `--frozen-lockfile` を使う。                                           |
+| 公開直後の依存      | pnpm の `minimumReleaseAge` で、公開直後の依存バージョンをすぐ取り込まない。               |
+| 依存の build script | pnpm の `allowBuilds` で、許可した依存だけにビルドスクリプト実行を認める。                 |
+| GitHub Actions      | [pinact](https://github.com/suzuki-shunsuke/pinact) で `uses:` をコミット SHA に固定する。 |
+| CI 検査             | lint、format、typecheck、test、build、`pinact run --check` を実行する。                    |
 
-- pnpm の `minimumReleaseAge` で、公開直後の依存バージョンをすぐ取り込まない。
-- pnpm の `allowBuilds` で、許可した依存だけにビルドスクリプト実行を認める。
-- CI とローカル導入では `--frozen-lockfile` を使い、lockfile と実際の依存解決を一致させる。
-- GitHub Actions の `uses:` は [pinact](https://github.com/suzuki-shunsuke/pinact) でコミット SHA に固定し、CI で `pinact run --check` を実行する。
+### ドキュメント
+
+| 文書                                                                       | 内容                                                 |
+| -------------------------------------------------------------------------- | ---------------------------------------------------- |
+| [docs/design.md](docs/design.md)                                           | アーキテクチャ、パッケージ責務、LSP 機能の対応関係。 |
+| [docs/roadmap.md](docs/roadmap.md)                                         | 実装済みフェーズと残タスクの管理。                   |
+| [docs/plans/](docs/plans/)                                                 | 各フェーズの実行ログ。                               |
+| [packages/vscode-extension/README.md](packages/vscode-extension/README.md) | VSCode 拡張機能としての機能と設定。                  |
