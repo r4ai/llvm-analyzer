@@ -69,7 +69,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   - `completion` ← 基本キーワード/オペコード/スコープ内識別子
   - `rename` ← 参照インデックス
   - `foldingRange` ← 関数/ブロック範囲
-  - `inlayHint` ← 型構文モデル + SSA値の推定型
+  - `inlayHint` ← 型構文モデル + SSA値の推定型。初期実装では parameter / local の定義名直後に `: type` を表示し、`llvm-analyzer.inlayHints.types.enabled` で切り替える。
   - `workspace/symbol` ← ワークスペース索引
   - `callHierarchy/*` ← 直接呼び出し索引
   - `documentLink` ← `source_filename` / debug metadata のファイル参照候補

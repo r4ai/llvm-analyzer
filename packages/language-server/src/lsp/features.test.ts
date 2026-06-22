@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   getCompletionItems,
@@ -6,10 +7,14 @@ import {
   getDocumentSymbols,
   getFoldingRanges,
   getHover,
+  getInlayHints,
   getReferences,
   getRenameEdit,
   getSemanticTokens,
   makeDocumentSnapshot,
+  defaultInlayHintSettings,
+  inlayHintProviderCapability,
+  normalizeInlayHintSettings,
 } from "./features.ts";
 
 const source = [
@@ -104,5 +109,61 @@ describe("LSP 機能アダプタ", () => {
         endCharacter: 1,
       },
     ]);
+  });
+
+  it("inlayHint はSSA値の推定型を返す", () => {
+    const hints = getInlayHints(snapshot);
+
+    expect(hints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          position: { line: 2, character: 23 },
+          label: ": i32",
+        }),
+        expect.objectContaining({
+          position: { line: 4, character: 6 },
+          label: ": i32",
+        }),
+      ]),
+    );
+  });
+
+  it("inlayHint は要求 range 外の hint を返さない", () => {
+    const hints = getInlayHints(snapshot, {
+      start: { line: 4, character: 5 },
+      end: { line: 4, character: 99 },
+    });
+
+    expect(hints).toEqual([
+      expect.objectContaining({
+        position: { line: 4, character: 6 },
+        label: ": i32",
+      }),
+    ]);
+  });
+
+  it("inlayHint は設定で型表示を無効化できる", () => {
+    expect(getInlayHints(snapshot, undefined, { types: { enabled: false } })).toEqual([]);
+    expect(normalizeInlayHintSettings({ types: { enabled: "yes" } })).toEqual(
+      defaultInlayHintSettings,
+    );
+    expect(inlayHintProviderCapability).toBe(true);
+  });
+
+  it("VSCode contributes.configuration に inlay hint 設定 schema がある", () => {
+    const manifest = JSON.parse(readFileSync("packages/vscode-extension/package.json", "utf8")) as {
+      contributes?: {
+        configuration?: {
+          properties?: Record<string, unknown>;
+        };
+      };
+    };
+
+    expect(
+      manifest.contributes?.configuration?.properties?.["llvm-analyzer.inlayHints.types.enabled"],
+    ).toMatchObject({
+      type: "boolean",
+      default: defaultInlayHintSettings.types.enabled,
+    });
   });
 });

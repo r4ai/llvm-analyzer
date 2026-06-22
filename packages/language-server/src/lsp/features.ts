@@ -9,6 +9,7 @@ import { parseModule, type ParseDiagnostic, type Range } from "@llvm-analyzer/pa
 import {
   CompletionItemKind,
   DiagnosticSeverity,
+  InlayHintKind,
   MarkupKind,
   SymbolKind as LspSymbolKind,
   type CompletionItem,
@@ -16,6 +17,7 @@ import {
   type DocumentSymbol,
   type FoldingRange,
   type Hover,
+  type InlayHint,
   type Location,
   type Position as LspPosition,
   type Range as LspRange,
@@ -82,6 +84,31 @@ export interface DocumentSnapshot {
   readonly parse: ReturnType<typeof parseModule>;
   readonly model: ReturnType<typeof analyze>;
 }
+
+export interface InlayHintSettings {
+  readonly types: {
+    readonly enabled: boolean;
+  };
+}
+
+export const defaultInlayHintSettings: InlayHintSettings = {
+  types: { enabled: true },
+};
+
+/** raw configuration を inlay hint 設定へ正規化する。 */
+export const normalizeInlayHintSettings = (raw: unknown): InlayHintSettings => {
+  if (!isRecord(raw)) return defaultInlayHintSettings;
+  return {
+    types: {
+      enabled: isRecord(raw.types)
+        ? booleanSetting(raw.types.enabled, defaultInlayHintSettings.types.enabled)
+        : defaultInlayHintSettings.types.enabled,
+    },
+  };
+};
+
+/** Inlay hint provider の capability 宣言。 */
+export const inlayHintProviderCapability = true;
 
 /**
  * LSP 機能の入力に使う不変スナップショットを作る。
@@ -251,6 +278,45 @@ export const getFoldingRanges = (snapshot: DocumentSnapshot): FoldingRange[] =>
       endLine: entry.range.end.line,
       endCharacter: entry.range.end.column,
     }));
+
+/** SSA値の推定型を inlay hint として返す。 */
+export const getInlayHints = (
+  snapshot: DocumentSnapshot,
+  range?: LspRange,
+  settings: InlayHintSettings = defaultInlayHintSettings,
+): InlayHint[] => {
+  if (!settings.types.enabled) return [];
+  return snapshot.model.symbols
+    .filter((symbol) => (symbol.kind === "parameter" || symbol.kind === "local") && symbol.type)
+    .filter((symbol) => !range || positionInRange(symbol.definition.range.end, range))
+    .map((symbol) => ({
+      position: {
+        line: symbol.definition.range.end.line,
+        character: symbol.definition.range.end.column,
+      },
+      label: `: ${symbol.type}`,
+      kind: InlayHintKind.Type,
+    }));
+};
+
+const positionInRange = (position: Range["end"], range: LspRange): boolean =>
+  comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;
+
+const comparePosition = (
+  left: { readonly line: number; readonly character?: number; readonly column?: number },
+  right: { readonly line: number; readonly character?: number; readonly column?: number },
+): number => {
+  const leftCharacter = left.character ?? left.column ?? 0;
+  const rightCharacter = right.character ?? right.column ?? 0;
+  if (left.line !== right.line) return left.line - right.line;
+  return leftCharacter - rightCharacter;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const booleanSetting = (value: unknown, fallback: boolean): boolean =>
+  typeof value === "boolean" ? value : fallback;
 
 const symbolAt = (snapshot: DocumentSnapshot, position: LspPosition): SemanticSymbol | undefined =>
   snapshot.model.symbolAt(toParserPosition(snapshot, position));

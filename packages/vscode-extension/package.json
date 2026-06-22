@@ -139,6 +139,11 @@
           ],
           "default": "error",
           "description": "外部 verifier 由来の診断の重大度。"
+        },
+        "llvm-analyzer.inlayHints.types.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "SSA 値の推定型を inlay hint として表示する。"
         }
       }
     }

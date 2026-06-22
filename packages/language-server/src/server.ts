@@ -16,12 +16,17 @@ import {
   getDocumentSymbols,
   getFoldingRanges,
   getHover,
+  getInlayHints,
+  inlayHintProviderCapability,
   getReferences,
   getRenameEdit,
   getSemanticTokens,
   makeDocumentSnapshot,
   semanticTokenLegend,
   type DocumentSnapshot,
+  defaultInlayHintSettings,
+  normalizeInlayHintSettings,
+  type InlayHintSettings,
 } from "./lsp/features.ts";
 import {
   defaultDiagnosticSettings,
@@ -39,6 +44,7 @@ import {
 const DIAGNOSTIC_DEBOUNCE_MS = 150;
 const VERIFIER_CONFIG_SECTION = "llvm-analyzer.verifier";
 const DIAGNOSTICS_CONFIG_SECTION = "llvm-analyzer.diagnostics";
+const INLAY_HINTS_CONFIG_SECTION = "llvm-analyzer.inlayHints";
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -49,6 +55,7 @@ const verifierControllers = new Map<string, AbortController>();
 let supportsConfiguration = false;
 let verifierSettingsCache: Promise<ExternalVerifierSettings> | undefined;
 let diagnosticSettingsCache: Promise<DiagnosticSettings> | undefined;
+let inlayHintSettingsCache: Promise<InlayHintSettings> | undefined;
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
   supportsConfiguration = params.capabilities.workspace?.configuration === true;
@@ -62,6 +69,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       completionProvider: { resolveProvider: false },
       renameProvider: { prepareProvider: false },
       foldingRangeProvider: true,
+      inlayHintProvider: inlayHintProviderCapability,
       semanticTokensProvider: {
         legend: semanticTokenLegend,
         range: false,
@@ -74,6 +82,10 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 connection.onDidChangeConfiguration(() => {
   verifierSettingsCache = undefined;
   diagnosticSettingsCache = undefined;
+  inlayHintSettingsCache = undefined;
+  void connection.languages.inlayHint.refresh().catch(() => {
+    // クライアントが refresh をサポートしない場合は次回要求時の再計算に任せる。
+  });
   for (const document of documents.all()) {
     scheduleAnalysis(document);
   }
@@ -125,6 +137,12 @@ connection.languages.semanticTokens.on((params) => {
 connection.onFoldingRanges((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
   return snapshot ? getFoldingRanges(snapshot) : [];
+});
+
+connection.languages.inlayHint.on((params) => {
+  const snapshot = snapshotFor(params.textDocument.uri);
+  if (!snapshot) return [];
+  return inlayHintSettings().then((settings) => getInlayHints(snapshot, params.range, settings));
 });
 
 documents.listen(connection);
@@ -237,6 +255,11 @@ function diagnosticSettings(): Promise<DiagnosticSettings> {
   return diagnosticSettingsCache;
 }
 
+function inlayHintSettings(): Promise<InlayHintSettings> {
+  inlayHintSettingsCache ??= loadInlayHintSettings();
+  return inlayHintSettingsCache;
+}
+
 async function loadVerifierSettings(): Promise<ExternalVerifierSettings> {
   if (!supportsConfiguration) return defaultVerifierSettings;
   const raw = await connection.workspace.getConfiguration(VERIFIER_CONFIG_SECTION);
@@ -255,6 +278,12 @@ async function loadDiagnosticSettings(): Promise<DiagnosticSettings> {
   if (!supportsConfiguration) return defaultDiagnosticSettings;
   const raw = await connection.workspace.getConfiguration(DIAGNOSTICS_CONFIG_SECTION);
   return normalizeDiagnosticSettings(raw);
+}
+
+async function loadInlayHintSettings(): Promise<InlayHintSettings> {
+  if (!supportsConfiguration) return defaultInlayHintSettings;
+  const raw = await connection.workspace.getConfiguration(INLAY_HINTS_CONFIG_SECTION);
+  return normalizeInlayHintSettings(raw);
 }
 
 function snapshotFor(uri: string): DocumentSnapshot | undefined {

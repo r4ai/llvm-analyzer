@@ -46,9 +46,9 @@
 - [x] **診断レベル設定**（2026-06-22）
   - parser / analyzer / external verifier の診断ソースごとに有効化と severity を設定可能にした
   - 生成途中の IR や独自方言を扱うための抑制設定を language-server 側で提供する
-- [ ] **Inlay Hints**
-  - SSA 値の推定型や安全に計算できる補助情報を `textDocument/inlayHint` で表示する
-  - 表示種別ごとに設定で切り替えられるようにする
+- [x] **Inlay Hints**（2026-06-22）
+  - SSA 値の推定型を `textDocument/inlayHint` で表示する
+  - 型 hint を `llvm-analyzer.inlayHints.types.enabled` で切り替えられるようにする
 - [ ] **Workspace Symbols**
   - ワークスペース内の `.ll` ファイルを索引化し、`@function` / `@global` / `%type` / `!metadata` などを検索可能にする
   - ファイル変更・削除時に索引を更新する

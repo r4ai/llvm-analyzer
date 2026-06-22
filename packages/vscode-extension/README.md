@@ -9,6 +9,7 @@ LLVM IR (`.ll`) 向けの VSCode 拡張機能。
 - scalar / pointer / vector / array / struct / function type / named type / opaque struct の軽量型解析に基づく型表示。
 - PATH 上の `llvm-as` を使った任意の外部 verifier 診断。
 - parser / analyzer / external verifier ごとの診断有効化と重大度設定。
+- SSA 値の推定型を表示する Inlay Hints。
 
 ## 設定
 
@@ -24,6 +25,7 @@ LLVM IR (`.ll`) 向けの VSCode 拡張機能。
 - `llvm-analyzer.diagnostics.analyzer.severity`: analyzer 由来の意味診断の重大度。
 - `llvm-analyzer.diagnostics.verifier.enabled`: external verifier 由来の診断を有効にする。
 - `llvm-analyzer.diagnostics.verifier.severity`: external verifier 由来の診断の重大度。
+- `llvm-analyzer.inlayHints.types.enabled`: SSA 値の推定型 inlay hint を有効にする。
 
 ## 開発
 
