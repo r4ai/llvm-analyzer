@@ -1,0 +1,26 @@
+{
+  "name": "@llvm-analyzer/language-server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "LLVM IR 向け Language Server。parser / analyzer を LSP 機能へ変換する。",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/server.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@llvm-analyzer/analyzer": "workspace:*",
+    "@llvm-analyzer/parser": "workspace:*",
+    "vscode-languageserver": "^10.0.0",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1"
+  }
+}

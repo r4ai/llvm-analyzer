@@ -89,6 +89,17 @@ describe("analyze: 定義参照インデックス", () => {
     ).toEqual(["@puts", "@puts"]);
   });
 
+  it("関数引数の定義位置を referencesOf で重複させない", () => {
+    const source = ["define i32 @main(i32 %x) {", "entry:", "  ret i32 %x", "}"].join("\n");
+    const model = modelOf(source);
+    const parameter = model.symbolAt(posOf(source, "%x"));
+
+    expect(model.referencesOf(parameter?.id ?? "").map((ref) => ref.range.start.offset)).toEqual([
+      posOf(source, "%x").offset,
+      posOf(source, "%x", 1).offset,
+    ]);
+  });
+
   it("ラベル参照を同じ関数スコープのラベル定義へリンクする", () => {
     const source = [
       "define void @f() {",

@@ -140,8 +140,13 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
    *
    * @param symbol 参照先として解決されたシンボル。
    * @param ref 参照側の識別子出現。
+   *
+   * @remarks
+   * 関数引数はシグネチャ上の出現を定義として登録したあと、同じシグネチャ参照列の解決対象にもなる。
+   * 同一範囲は同じ出現なので、referencesOf と位置インデックスへ二重登録しない。
    */
   const addReference = (symbol: MutableSymbol, ref: IdentifierRef): void => {
+    if (symbol.references.some((existing) => sameRange(existing.range, ref.range))) return;
     symbol.references.push(ref);
     occurrences.push({ ref, symbol });
   };
@@ -516,6 +521,16 @@ const contains = (range: Range, position: Position): boolean =>
  */
 const compareRefs = (a: IdentifierRef, b: IdentifierRef): number =>
   a.range.start.offset - b.range.start.offset;
+
+/**
+ * 2つの範囲が同じ出現を指すかを判定する。
+ *
+ * @param a 比較する範囲。
+ * @param b 比較する範囲。
+ * @returns 開始・終了 offset が同じなら true。
+ */
+const sameRange = (a: Range, b: Range): boolean =>
+  a.start.offset === b.start.offset && a.end.offset === b.end.offset;
 
 /**
  * 文字列を正規表現リテラルとして安全に埋め込むためにエスケープする。
