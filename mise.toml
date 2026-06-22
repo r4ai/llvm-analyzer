@@ -1,0 +1,7 @@
+[tools]
+node = "24"
+pinact = "3.10.1"
+lefthook = "2.1.9"
+
+# pnpm はルート package.json の "packageManager" フィールドで固定し、
+# Corepack 経由でバージョンを管理する（初回のみ `corepack enable` が必要）。
