@@ -55,7 +55,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
 - **CFG / 呼び出し情報**: 関数単位で basic block successor と直接呼び出し先を抽出する。CFG は `br` / `switch` / `indirectbr` / `invoke` / `callbr` の `label %bb` から静的に分かる範囲を対象にし、間接分岐や関数ポインタの完全解決は行わない。Mermaid 出力は analyzer の純粋関数で生成する。
 - **ファイル参照候補**: `source_filename` と `!DIFile(filename:, directory:)` から、エディタ上でリンク化できるファイルパス候補を抽出する。存在確認と URI 解決は language-server 側の副作用として分離し、コメント内 URL や任意文字列は対象にしない。
-- オペコード/型のドキュメント辞書を持ち、Hover/Completion で再利用。
+- オペコード/型/属性のドキュメント辞書を持ち、Hover/Completion で再利用。
 - 公開API例: `analyze(ast, { source }): SemanticModel`、`SemanticModel.definitionAt(pos)` / `referencesOf(symbol)` / `symbolAt(pos)` / `documentSymbols()` / `diagnostics()`
 
 ### language-server（アダプタ）
@@ -66,7 +66,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - ワークスペース横断機能は language-server 側で `.ll` ファイルごとの解析結果を索引化し、parser/analyzer の純粋 API から得たシンボル・呼び出し・ファイル参照候補を LSP 形式へ変換する。
   初期の workspace symbol 索引は URI 単位で `DocumentSnapshot` を保持し、open document・workspace folder 初期走査・watched file events で更新する。
 - capability ↔ analyzer クエリの対応:
-  - `hover` ← `symbolAt` + 型/ドキュメント辞書。シンボル参照では英語の短い markdown を返し、宣言形のコードブロック、Kind / Type / Scope の表、定義元行（parameter は関数シグネチャ、local は定義命令）を表示する。opcode/type token では短い意味、典型的な使い方、LLVM IR 例、公式 LangRef リンクを返す。opcode docs は lexer が扱う LangRef 命令と `define` / `declare` を網羅する。
+  - `hover` ← `symbolAt` + 型/ドキュメント辞書。シンボル参照では英語の短い markdown を返し、宣言形のコードブロック、Kind / Type / Scope の表、定義元行（parameter は関数シグネチャ、local は定義命令）を表示する。opcode/type/attribute token では短い意味、典型的な使い方、LLVM IR 例、公式 LangRef リンクを返す。opcode docs は lexer が扱う LangRef 命令と `define` / `declare` を網羅し、attribute docs は関数属性・パラメータ属性・メモリ効果属性などの代表語を扱う。
   - `definition` / `references` ← 定義/参照インデックス。`references` は LSP の `includeDeclaration` を尊重する
   - `documentSymbol` ← `documentSymbols`
   - `semanticTokens/full` ← トークン分類

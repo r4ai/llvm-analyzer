@@ -92,6 +92,10 @@
   - Example には対応する操作を短い疑似コードコメントとして併記する
   - lexer が扱う LangRef 命令と `define` / `declare` に hover docs を追加した
   - 公式 LangRef の該当セクションを参照しつつ、hover 向けに本文を簡潔化した
+- [x] **Attribute Hover Docs**（2026-06-23）
+  - 関数属性・パラメータ属性・メモリ効果属性・浮動小数点環境属性の代表語に hover docs を追加した
+  - 属性 hover に短い意味、使い方、LLVM IR 例、公式 LangRef リンクを表示する
+  - `nounwind` / `noundef` / `captures` / `memory` などを LSP hover から確認できるようにした
 
 ## メモ
 

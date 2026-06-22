@@ -1,7 +1,7 @@
 import { parseModule, type Position } from "@llvm-analyzer/parser";
 import { describe, expect, it } from "vitest";
 import { analyze } from "./analyzer.ts";
-import { opcodeDocs, typeDocs } from "./docs.ts";
+import { attributeDocs, opcodeDocs, typeDocs } from "./docs.ts";
 import type { SemanticModel } from "./types.ts";
 
 /** ソースをパースして意味解析する。 */
@@ -678,7 +678,7 @@ describe("docs", () => {
     );
   });
 
-  it("オペコード・型のドキュメント辞書を持つ", () => {
+  it("オペコード・型・属性のドキュメント辞書を持つ", () => {
     const documentedOpcodes = [
       "ret",
       "br",
@@ -767,6 +767,34 @@ describe("docs", () => {
       "https://llvm.org/docs/LangRef.html#pointer-type",
     );
     expect(typeDocs.get("i32")?.label).toBe("i32");
+    expect(attributeDocs.get("nounwind")?.markdown).toContain("never raises an exception");
+    expect(attributeDocs.get("nounwind")?.markdown).toContain("Example:");
+    expect(attributeDocs.get("nounwind")?.markdown).toContain("define void @f() nounwind");
+    expect(attributeDocs.get("nounwind")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#function-attributes",
+    );
+    expect(attributeDocs.get("noundef")?.markdown).toContain("must not be undef or poison");
+    expect(attributeDocs.get("noundef")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#attr-noundef",
+    );
+    expect(attributeDocs.get("captures")?.markdown).toContain(
+      "Restricts how the callee may capture a pointer argument",
+    );
+    expect(attributeDocs.get("captures")?.markdown).toContain(
+      "declare void @use(ptr captures(none) %p)",
+    );
+    expect(attributeDocs.get("captures")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#captures-attr",
+    );
+    expect(attributeDocs.get("memory")?.markdown).toContain(
+      "Describes the possible memory effects",
+    );
+    expect(attributeDocs.get("memory")?.markdown).toContain(
+      "define void @scan(ptr %p) memory(read)",
+    );
+    expect(attributeDocs.get("memory")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#function-attributes",
+    );
   });
 
   it("LangRef に沿った正確な表示文言を持つ", () => {
@@ -781,5 +809,12 @@ describe("docs", () => {
       "Compares integer, pointer, integer-vector, or pointer-vector values.",
     );
     expect(typeDocs.get("b32")?.markdown).toContain("https://llvm.org/docs/LangRef.html#byte-type");
+    expect(attributeDocs.get("nofpclass")?.markdown).toContain("Excludes floating-point classes");
+    expect(attributeDocs.get("denormal_fpenv")?.markdown).toContain(
+      "denormal floating-point environment",
+    );
+    expect(attributeDocs.get("denormal_fpenv")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#denormal-fpenv",
+    );
   });
 });

@@ -963,6 +963,360 @@ export const opcodeDocs = new Map<string, DocEntry>([
 ]);
 
 /**
+ * LLVM IR 属性のドキュメント辞書。
+ *
+ * @remarks
+ * 属性は関数・戻り値・引数・call site の契約を表すため、hover では代表的な意味と
+ * 最小の使用例だけを表示し、詳細は公式 LangRef へ委ねる。
+ *
+ * @example
+ * const doc = attributeDocs.get("noundef");
+ * doc?.markdown; // undef / poison を許さない契約の説明
+ *
+ * @public
+ */
+export const attributeDocs = new Map<string, DocEntry>([
+  [
+    "zeroext",
+    {
+      label: "zeroext",
+      markdown: docMarkdown({
+        summary: "Zero-extends an integer parameter or return value as required by the target ABI.",
+        usage:
+          "Use it on declarations, definitions, and matching call sites when the ABI requires zero extension.",
+        pseudo: "arg is passed with zero extension",
+        example: "declare i32 @atoi(i8 zeroext)",
+        reference: langRef("parameter-attributes"),
+      }),
+    },
+  ],
+  [
+    "signext",
+    {
+      label: "signext",
+      markdown: docMarkdown({
+        summary: "Sign-extends an integer parameter or return value as required by the target ABI.",
+        usage:
+          "Use it consistently at the function boundary and call site when the target ABI depends on sign extension.",
+        pseudo: "result is returned with sign extension",
+        example: "declare signext i8 @returns_signed_char()",
+        reference: langRef("parameter-attributes"),
+      }),
+    },
+  ],
+  [
+    "noalias",
+    {
+      label: "noalias",
+      markdown: docMarkdown({
+        summary:
+          "States that modified memory accessed through pointer values based on this argument or return value does not alias other accesses.",
+        usage:
+          "Use it on pointer arguments or return values only when the frontend can prove the LangRef aliasing contract.",
+        pseudo: "modified memory reached from p does not alias",
+        example: "declare void @fill(ptr noalias %dst)",
+        reference: langRef("noalias"),
+      }),
+    },
+  ],
+  [
+    "captures",
+    {
+      label: "captures",
+      markdown: docMarkdown({
+        summary: "Restricts how the callee may capture a pointer argument.",
+        usage:
+          "Use `captures(none)` when the callee does not retain the pointer, or list the captured pointer components explicitly.",
+        pseudo: "callee does not keep p",
+        example: "declare void @use(ptr captures(none) %p)",
+        reference: langRef("captures-attr"),
+      }),
+    },
+  ],
+  [
+    "returned",
+    {
+      label: "returned",
+      markdown: docMarkdown({
+        summary: "States that the function always returns this argument as its return value.",
+        usage: "Use it when an argument is forwarded directly to the return value.",
+        pseudo: "return p",
+        example: "declare ptr @identity(ptr returned %p)",
+        reference: langRef("parameter-attributes"),
+      }),
+    },
+  ],
+  [
+    "nonnull",
+    {
+      label: "nonnull",
+      markdown: docMarkdown({
+        summary: "States that a pointer parameter or return value is not null.",
+        usage:
+          "Use it when null is impossible. Combine with `noundef` when the value itself must be well defined.",
+        pseudo: "p != null",
+        example: "declare void @use(ptr nonnull %p)",
+        reference: langRef("attr-nonnull"),
+      }),
+    },
+  ],
+  [
+    "dereferenceable",
+    {
+      label: "dereferenceable",
+      markdown: docMarkdown({
+        summary:
+          "States that a pointer parameter or return value can be safely dereferenced for N bytes.",
+        usage: "Use `dereferenceable(N)` only when those bytes can be speculatively loaded.",
+        pseudo: "p points to at least N bytes",
+        example: "declare void @read(ptr dereferenceable(4) %p)",
+        reference: langRef("attr-dereferenceable"),
+      }),
+    },
+  ],
+  [
+    "noundef",
+    {
+      label: "noundef",
+      markdown: docMarkdown({
+        summary: "States that a parameter or return value must not be undef or poison.",
+        usage:
+          "Use it to make a function boundary require a fully defined value; violating it produces undefined behavior.",
+        pseudo: "value is fully defined",
+        example: "declare void @use(i32 noundef %x)",
+        reference: langRef("attr-noundef"),
+      }),
+    },
+  ],
+  [
+    "nofpclass",
+    {
+      label: "nofpclass",
+      markdown: docMarkdown({
+        summary: "Excludes floating-point classes from a parameter or return value.",
+        usage:
+          "Use `nofpclass(mask)` to state that matching floating-point classes are replaced by poison at the boundary.",
+        pseudo: "x is not NaN",
+        example: "declare void @use(float nofpclass(nan) %x)",
+        reference: langRef("nofpclass"),
+      }),
+    },
+  ],
+  [
+    "range",
+    {
+      label: "range",
+      markdown: docMarkdown({
+        summary:
+          "Constrains the possible values of a parameter or return value to constant ranges.",
+        usage:
+          "Use `range(<ty> a, b)` when values outside the half-open range `[a, b)` should become poison.",
+        pseudo: "0 <= x < 10",
+        example: "declare void @use(i32 range(i32 0, 10) %x)",
+        reference: langRef("parameter-attributes"),
+      }),
+    },
+  ],
+  [
+    "nounwind",
+    {
+      label: "nounwind",
+      markdown: docMarkdown({
+        summary: "States that the function never raises an exception.",
+        usage:
+          "Use it only when unwinding out of the function cannot occur; unwinding through it is undefined behavior.",
+        pseudo: "f cannot unwind",
+        example: "define void @f() nounwind { ret void }",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "noreturn",
+    {
+      label: "noreturn",
+      markdown: docMarkdown({
+        summary: "States that the function never returns normally to its caller.",
+        usage:
+          "Use it for functions that terminate, trap, or otherwise do not resume normal control flow.",
+        pseudo: "call does not return",
+        example: "declare void @fatal() noreturn",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "willreturn",
+    {
+      label: "willreturn",
+      markdown: docMarkdown({
+        summary:
+          "States that a call of the function will either return normally or have undefined behavior.",
+        usage:
+          "Use it when infinite looping without returning or unwinding is not a valid behavior for this function.",
+        pseudo: "f eventually returns",
+        example: "declare i32 @pure(i32 %x) willreturn",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "memory",
+    {
+      label: "memory",
+      markdown: docMarkdown({
+        summary: "Describes the possible memory effects of a function or call site.",
+        usage:
+          "Use `memory(none)`, `memory(read)`, `memory(write)`, or location-qualified forms to constrain memory access.",
+        pseudo: "f may only read memory",
+        example: "define void @scan(ptr %p) memory(read) { ret void }",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "readnone",
+    {
+      label: "readnone",
+      markdown: docMarkdown({
+        summary: "States that the callee does not dereference this pointer argument.",
+        usage:
+          "Use it on pointer parameters when the callee may receive the pointer but must not access memory through it.",
+        pseudo: "callee does not dereference p",
+        example: "declare void @observe(ptr readnone %p)",
+        reference: langRef("parameter-attributes"),
+      }),
+    },
+  ],
+  [
+    "readonly",
+    {
+      label: "readonly",
+      markdown: docMarkdown({
+        summary: "States that the callee does not write through this pointer argument.",
+        usage:
+          "Use it on pointer parameters when the callee may read through the pointer but must not write through it.",
+        pseudo: "callee may read p but not write it",
+        example: "declare void @peek(ptr readonly %p)",
+        reference: langRef("parameter-attributes"),
+      }),
+    },
+  ],
+  [
+    "writeonly",
+    {
+      label: "writeonly",
+      markdown: docMarkdown({
+        summary:
+          "States that the callee may write through this pointer argument but does not read through it.",
+        usage:
+          "Use it on pointer parameters when only writes through the pointer are observable under the attribute contract.",
+        pseudo: "callee may write p but not read it",
+        example: "declare void @zero(ptr writeonly %p)",
+        reference: langRef("parameter-attributes"),
+      }),
+    },
+  ],
+  [
+    "nofree",
+    {
+      label: "nofree",
+      markdown: docMarkdown({
+        summary: "States that the function or argument contract does not free relevant memory.",
+        usage:
+          "Use it when calls through the annotated function boundary cannot deallocate memory visible under that contract.",
+        pseudo: "f does not free memory",
+        example: "declare void @visit(ptr %p) nofree",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "nosync",
+    {
+      label: "nosync",
+      markdown: docMarkdown({
+        summary:
+          "States that the function does not introduce synchronization that communicates with another thread.",
+        usage:
+          "Use it when the function has no cross-thread synchronization behavior relevant to LLVM's memory model.",
+        pseudo: "f does not synchronize with other threads",
+        example: "declare i32 @local_calc(i32 %x) nosync",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "noinline",
+    {
+      label: "noinline",
+      markdown: docMarkdown({
+        summary: "Prevents the inliner from inlining this function.",
+        usage: "Use it when the function body must remain out of line.",
+        pseudo: "do not inline f",
+        example: "define void @f() noinline { ret void }",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "alwaysinline",
+    {
+      label: "alwaysinline",
+      markdown: docMarkdown({
+        summary: "Requests that the inliner attempts to inline this function.",
+        usage:
+          "Use it only when inlining is semantically or performance critical; it is incompatible with `noinline`.",
+        pseudo: "try to inline f",
+        example: "define void @f() alwaysinline { ret void }",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "cold",
+    {
+      label: "cold",
+      markdown: docMarkdown({
+        summary: "Marks the function as unlikely to execute often.",
+        usage: "Use it for error paths or slow paths when profile data is unavailable.",
+        pseudo: "f is a cold path",
+        example: "declare void @slow_path() cold",
+        reference: langRef("attr-cold"),
+      }),
+    },
+  ],
+  [
+    "hot",
+    {
+      label: "hot",
+      markdown: docMarkdown({
+        summary: "Marks the function as a hot spot of the program.",
+        usage:
+          "Use it when the frontend knows the function is frequently executed and profile data should be overridden.",
+        pseudo: "f is a hot path",
+        example: "declare void @fast_path() hot",
+        reference: langRef("function-attributes"),
+      }),
+    },
+  ],
+  [
+    "denormal_fpenv",
+    {
+      label: "denormal_fpenv",
+      markdown: docMarkdown({
+        summary: "Specifies the denormal floating-point environment for the function.",
+        usage:
+          "Use it when the frontend needs to describe how denormal inputs and outputs are handled.",
+        pseudo: "f uses the IEEE denormal mode",
+        example: "attributes #0 = { denormal_fpenv(ieee|ieee) }",
+        reference: langRef("denormal-fpenv"),
+      }),
+    },
+  ],
+]);
+
+/**
  * よく使う LLVM IR 型のドキュメント辞書。
  *
  * @remarks

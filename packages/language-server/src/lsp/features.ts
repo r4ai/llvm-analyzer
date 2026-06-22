@@ -1,5 +1,6 @@
 import {
   analyze,
+  attributeDocs,
   opcodeDocs,
   typeDocs,
   type SemanticSymbol,
@@ -576,7 +577,8 @@ const sourceLineAt = (snapshot: DocumentSnapshot, line: number): string =>
 const docHoverAt = (snapshot: DocumentSnapshot, position: LspPosition): Hover | undefined => {
   const token = tokenAt(snapshot, position);
   if (!token) return undefined;
-  const doc = opcodeDocs.get(token.value) ?? typeDocs.get(token.value);
+  const doc =
+    opcodeDocs.get(token.value) ?? typeDocs.get(token.value) ?? attributeDocs.get(token.value);
   if (!doc) return undefined;
   return {
     contents: {

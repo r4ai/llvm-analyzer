@@ -282,6 +282,35 @@ describe("LSP 機能アダプタ", () => {
     );
   });
 
+  it("hover は属性 docs を返す", () => {
+    const docs = makeDocumentSnapshot(
+      "file:///attribute-hover.ll",
+      [
+        "declare void @use(ptr captures(none) %p)",
+        "define void @f(ptr noundef %p) nounwind memory(read) {",
+        "  ret void",
+        "}",
+      ].join("\n"),
+    );
+
+    expect(getHover(docs, { line: 1, character: 35 })?.range).toEqual({
+      start: { line: 1, character: 31 },
+      end: { line: 1, character: 39 },
+    });
+    expect(markdownValue(getHover(docs, { line: 1, character: 35 })?.contents)).toContain(
+      "never raises an exception",
+    );
+    expect(markdownValue(getHover(docs, { line: 1, character: 44 })?.contents)).toContain(
+      "https://llvm.org/docs/LangRef.html#function-attributes",
+    );
+    expect(markdownValue(getHover(docs, { line: 1, character: 25 })?.contents)).toContain(
+      "must not be undef or poison",
+    );
+    expect(markdownValue(getHover(docs, { line: 0, character: 22 })?.contents)).toContain(
+      "https://llvm.org/docs/LangRef.html#captures-attr",
+    );
+  });
+
   it("hover はユーザー定義関数名に同名 opcode の説明を混ぜない", () => {
     const userFunction = makeDocumentSnapshot(
       "file:///hover-user-function.ll",
