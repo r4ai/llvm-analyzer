@@ -1,6 +1,3 @@
-export { tokenize } from "./lexer/index.ts";
-export type { Position, Range, Token, TokenKind } from "./lexer/index.ts";
-export { parseModule } from "./parser/index.ts";
 export type {
   AttributeGroupDefinition,
   BasicBlock,
@@ -11,7 +8,6 @@ export type {
   GlobalVariable,
   IdentifierRef,
   Instruction,
-  MetadataDefinition,
   Module,
   NodeBase,
   ParseDiagnostic,
@@ -21,4 +17,5 @@ export type {
   TopLevelEntry,
   TypeDefinition,
   UnknownEntry,
-} from "./ast/index.ts";
+  MetadataDefinition,
+} from "./ast.ts";
