@@ -39,9 +39,38 @@
   - `llvm-as` など PATH 上の verifier を optional な追加診断ソースとして language-server に統合
   - debounce / cancellation / timeout / maxFileBytes / command missing 無視を実装
   - VSCode 設定で enabled / command / args / debounceMs / timeoutMs / maxFileBytes を変更可能にした
+- [ ] **型構文パーサ**
+  - LLVM IR の型構文を AST 化し、文字列ベースの軽量推定を段階的に置き換える
+  - scalar / pointer / vector / array / struct / function type / named type / opaque struct を対象にする
+  - hover / completion / inlay hints / diagnostics の基盤として analyzer へ接続する
+- [ ] **診断レベル設定**
+  - parser / analyzer / external verifier の診断ソースごとに有効化と severity を設定可能にする
+  - 生成途中の IR や独自方言を扱うための抑制設定を language-server 側で提供する
+- [ ] **Inlay Hints**
+  - SSA 値の推定型や安全に計算できる補助情報を `textDocument/inlayHint` で表示する
+  - 表示種別ごとに設定で切り替えられるようにする
+- [ ] **Workspace Symbols**
+  - ワークスペース内の `.ll` ファイルを索引化し、`@function` / `@global` / `%type` / `!metadata` などを検索可能にする
+  - ファイル変更・削除時に索引を更新する
+- [ ] **Call Hierarchy**
+  - `call` / `invoke` / `callbr` の直接呼び出しを抽出し、callers / callees を返す
+  - Workspace Symbols の索引を再利用して複数ファイルの直接呼び出しを扱う
+- [ ] **Document Link**
+  - `source_filename` と debug metadata のファイルパス候補を document link として返す
+  - ワークスペース相対パスと絶対パスを安全に解決する
+- [ ] **Format / Range Format**
+  - まず range format を対象に、選択範囲内の空白・インデントを安定化する
+  - 意味を変える pretty print は避け、AST を壊さない edit に絞る
+- [ ] **Control Flow Graph 表示**
+  - 関数単位の CFG モデルを analyzer に追加する
+  - VSCode command から現在関数の Mermaid / DOT を表示またはコピーできるようにする
+- [ ] **Code Action / Quick Fix**
+  - stable diagnostic code を整備し、修正可能な診断だけ quick fix を返す
+  - 近い名前への置換、verifier 設定案内、終端命令後の通常命令への安全な候補に絞る
 
 ## メモ
 
 - テストはテスティングピラミッドに従い、ユニット（lexer/parser/analyzer）を厚く、結合（source→LSPクエリ）を中程度、E2E（extension host）を薄く。
 - 対象は最新 LLVM LangRef（opaque pointer `ptr`）。typed pointer は寛容にパースするが警告しない。
 - コメント/ドキュメントは日本語、JSDocで記述（AGENTS.md準拠）。
+- LLVM バージョン別モードは当面扱わず、最新 LangRef 追従を優先する。

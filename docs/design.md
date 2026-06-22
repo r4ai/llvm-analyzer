@@ -44,7 +44,10 @@ parser/analyzer は `vscode*` に一切依存しない。
   - 関数スコープ: ローカルSSA値 `%x`（パラメータ含む）、ラベル。
 - **定義/参照インデックス**: 各シンボルの定義位置と全参照位置（Go to Definition / Find References / Rename の土台）。
 - **型解決**: SSA値の型（Hover表示用）。parser の AST は命令内部を粗く保持するため、`analyze(ast, { source })` で元ソースを渡された場合に、関数引数と命令結果の直近型トークンから安全に推定する。
+- **型構文モデル（予定）**: LLVM IR の型構文を parser の純粋層で AST 化し、analyzer はその型 AST を参照して hover / completion / inlay hints / diagnostics の表示品質を上げる。対象は scalar / pointer / vector / array / struct / function type / named type / opaque struct から始め、target datalayout に依存するサイズ計算や verifier 相当の型検査は扱わない。
 - **診断**: 未定義値の参照、重複定義、同一命令内の自己参照、終端命令後の通常命令など（LLVM verifier 全体は再実装しない）。metadata attachment key、関数宣言の引数名、関数スコープの use-list order directive など、LangRef 上の非参照・非命令は誤診断しない。language-server で parser の構文診断とマージする。
+- **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
+- **CFG / 呼び出し情報（予定）**: 関数単位で basic block successor と直接呼び出し先を抽出する。`br` / `switch` / `invoke` / `callbr` など静的に分かる範囲を対象にし、間接分岐や関数ポインタの完全解決は行わない。
 - オペコード/型のドキュメント辞書を持ち、Hover/Completion で再利用。
 - 公開API例: `analyze(ast, { source }): SemanticModel`、`SemanticModel.definitionAt(pos)` / `referencesOf(symbol)` / `symbolAt(pos)` / `documentSymbols()` / `diagnostics()`
 
@@ -53,6 +56,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - `vscode-languageserver/node` + `vscode-languageserver-textdocument`。VSCode 拡張から IPC で起動。
 - ドキュメント変更をデバウンスして全体再パース（初期はインクリメンタル無し）。
 - 外部 LLVM verifier は language-server の副作用として隔離する。即時診断は parser/analyzer が返し、`llvm-as` などの verifier は追加 debounce 後にバックグラウンド実行する。新しい編集が来たら古い結果は破棄し、実行中プロセスは中止する。
+- ワークスペース横断機能は language-server 側で `.ll` ファイルごとの解析結果を索引化し、parser/analyzer の純粋 API から得たシンボル・呼び出し・ファイル参照候補を LSP 形式へ変換する。
 - capability ↔ analyzer クエリの対応:
   - `hover` ← `symbolAt` + 型/ドキュメント辞書
   - `definition` / `references` ← 定義/参照インデックス
@@ -62,12 +66,20 @@ parser/analyzer は `vscode*` に一切依存しない。
   - `completion` ← 基本キーワード/オペコード/スコープ内識別子
   - `rename` ← 参照インデックス
   - `foldingRange` ← 関数/ブロック範囲
+  - `inlayHint` ← 型構文モデル + SSA値の推定型
+  - `workspace/symbol` ← ワークスペース索引
+  - `callHierarchy/*` ← 直接呼び出し索引
+  - `documentLink` ← `source_filename` / debug metadata のファイル参照候補
+  - `formatting` / `rangeFormatting` ← AST を壊さない空白・インデント edit
+  - `codeAction` ← stable diagnostic code と安全な修正候補
 
 ### vscode-extension（配布物）
 
 - `contributes.languages`（id `llvm`, `.ll`）/ `contributes.grammars`（`source.llvm`）/ `language-configuration.json`。
 - TextMate文法は **LSP無しでも色が付く土台**。将来は Semantic Tokens で強調を上書き。
 - `src/extension.ts` で `vscode-languageclient/node` を使い、esbuild で同梱した language-server を子プロセス起動する。
+- CFG 表示など VSCode 固有の UI は extension 側の command として実装し、グラフ構築自体は analyzer の純粋モデルに置く。初期表示形式は Mermaid または DOT を優先し、Webview の作り込みは後続に回す。
+- 診断レベル、inlay hints、format、document link、verifier などの利用者設定は contributes.configuration に追加し、language-server へ渡す。
 
 ## LLVM IR固有のパース勘所
 
