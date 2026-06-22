@@ -601,6 +601,83 @@ describe("analyze: 直接呼び出し抽出", () => {
 });
 
 describe("docs", () => {
+  it("LLVM LangRef の通常命令をすべて持つ", () => {
+    const langRefInstructionOpcodes = [
+      "add",
+      "addrspacecast",
+      "alloca",
+      "and",
+      "ashr",
+      "atomicrmw",
+      "bitcast",
+      "br",
+      "call",
+      "callbr",
+      "catchpad",
+      "catchret",
+      "catchswitch",
+      "cleanuppad",
+      "cleanupret",
+      "cmpxchg",
+      "extractelement",
+      "extractvalue",
+      "fadd",
+      "fcmp",
+      "fdiv",
+      "fence",
+      "fmul",
+      "fneg",
+      "fpext",
+      "fptosi",
+      "fptoui",
+      "fptrunc",
+      "freeze",
+      "frem",
+      "fsub",
+      "getelementptr",
+      "icmp",
+      "indirectbr",
+      "insertelement",
+      "insertvalue",
+      "inttoptr",
+      "invoke",
+      "landingpad",
+      "load",
+      "lshr",
+      "mul",
+      "or",
+      "phi",
+      "ptrtoaddr",
+      "ptrtoint",
+      "resume",
+      "ret",
+      "sdiv",
+      "select",
+      "sext",
+      "shl",
+      "shufflevector",
+      "sitofp",
+      "srem",
+      "store",
+      "sub",
+      "switch",
+      "trunc",
+      "udiv",
+      "uitofp",
+      "unreachable",
+      "urem",
+      "va_arg",
+      "xor",
+      "zext",
+    ];
+
+    const supplementalDocs = ["declare", "define"];
+
+    expect([...opcodeDocs.keys()].toSorted()).toEqual(
+      [...langRefInstructionOpcodes, ...supplementalDocs].toSorted(),
+    );
+  });
+
   it("オペコード・型のドキュメント辞書を持つ", () => {
     const documentedOpcodes = [
       "ret",
@@ -690,5 +767,19 @@ describe("docs", () => {
       "https://llvm.org/docs/LangRef.html#pointer-type",
     );
     expect(typeDocs.get("i32")?.label).toBe("i32");
+  });
+
+  it("LangRef に沿った正確な表示文言を持つ", () => {
+    expect(opcodeDocs.get("callbr")?.markdown).toContain(
+      'callbr void asm sideeffect "", "!i"() to label %fallthrough [label %target]',
+    );
+    expect(opcodeDocs.get("frem")?.markdown).toContain(
+      "Use it for fmod-style floating-point remainder calculations.",
+    );
+    expect(opcodeDocs.get("frem")?.markdown).not.toContain("IEEE-style");
+    expect(opcodeDocs.get("icmp")?.markdown).toContain(
+      "Compares integer, pointer, integer-vector, or pointer-vector values.",
+    );
+    expect(typeDocs.get("b32")?.markdown).toContain("https://llvm.org/docs/LangRef.html#byte-type");
   });
 });

@@ -255,7 +255,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         usage:
           "Use it for call-like operations with an ordinary fallthrough and indirect label destinations.",
         pseudo: "call target; jump may go to labels",
-        example: 'callbr void asm sideeffect "", ""() to label %fallthrough [label %target]',
+        example: 'callbr void asm sideeffect "", "!i"() to label %fallthrough [label %target]',
         reference: langRef("callbr-instruction"),
       }),
     },
@@ -453,7 +453,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
       label: "frem",
       markdown: docMarkdown({
         summary: "Computes the floating-point remainder.",
-        usage: "Use it for IEEE-style floating-point remainder calculations.",
+        usage: "Use it for fmod-style floating-point remainder calculations.",
         pseudo: "rem = lhs % rhs",
         example: "%r = frem float %lhs, %rhs",
         reference: langRef("frem-instruction"),
@@ -832,7 +832,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
     {
       label: "icmp",
       markdown: docMarkdown({
-        summary: "Compares integer, pointer, or vector values.",
+        summary: "Compares integer, pointer, integer-vector, or pointer-vector values.",
         usage:
           "Use it with predicates such as `eq`, `ne`, `slt`, or `ult`; the result is `i1` or a vector of `i1`.",
         pseudo: "is_equal = lhs == rhs",
@@ -1092,7 +1092,7 @@ export const typeDocs = new Map<string, DocEntry>([
           "Use byte types where the IR needs byte-oriented values instead of ordinary integers.",
         pseudo: "x = *addr",
         example: "%x = load b32, ptr %addr",
-        reference: langRef("integer-type"),
+        reference: langRef("byte-type"),
       }),
     },
   ],
