@@ -87,6 +87,9 @@
   - SSA 値 hover を英語の宣言形 markdown にし、Kind / Type / Scope を表で表示する
   - parameter は関数シグネチャ、local は定義命令をコードブロックで表示する
   - opcode / type hover 辞書の利用者向け本文を英語へ揃えた
+- [x] **LangRef 参照付き Hover Docs**（2026-06-23）
+  - opcode / type hover に短い意味、使い方、LLVM IR 例、公式 LangRef リンクを表示する
+  - 公式 LangRef の該当セクションを参照しつつ、hover 向けに本文を簡潔化した
 
 ## メモ
 

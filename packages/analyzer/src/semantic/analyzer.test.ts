@@ -604,7 +604,16 @@ describe("docs", () => {
   it("オペコード・型のドキュメント辞書を持つ", () => {
     expect(opcodeDocs.get("add")?.label).toBe("add");
     expect(opcodeDocs.get("call")?.markdown).toContain("Calls a function");
+    expect(opcodeDocs.get("call")?.markdown).toContain("Example:");
+    expect(opcodeDocs.get("call")?.markdown).toContain("```llvm");
+    expect(opcodeDocs.get("call")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#call-instruction",
+    );
+    expect(opcodeDocs.get("add")?.markdown).toContain("%sum = add i32 %lhs, %rhs");
     expect(typeDocs.get("ptr")?.markdown).toContain("opaque pointer");
+    expect(typeDocs.get("ptr")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#pointer-type",
+    );
     expect(typeDocs.get("i32")?.label).toBe("i32");
   });
 });

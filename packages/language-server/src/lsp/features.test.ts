@@ -247,12 +247,18 @@ describe("LSP 機能アダプタ", () => {
 
     expect(getHover(snapshot, { line: 4, character: 9 })?.contents).toMatchObject({
       kind: "markdown",
-      value: expect.stringContaining("Adds integer or integer vector values."),
+      value: expect.stringContaining("Example:"),
     });
+    expect(markdownValue(getHover(snapshot, { line: 4, character: 9 })?.contents)).toContain(
+      "https://llvm.org/docs/LangRef.html#add-instruction",
+    );
     expect(getHover(snapshot, { line: 7, character: 6 })?.contents).toMatchObject({
       kind: "markdown",
       value: expect.stringContaining("32-bit integer type."),
     });
+    expect(markdownValue(getHover(snapshot, { line: 7, character: 6 })?.contents)).toContain(
+      "https://llvm.org/docs/LangRef.html#integer-type",
+    );
   });
 
   it("hover はユーザー定義関数名に同名 opcode の説明を混ぜない", () => {
