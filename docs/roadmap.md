@@ -79,6 +79,10 @@
   - `%T` の型名とローカル値を型位置・値位置で分け、値位置の未定義参照を誤って型へ解決しないようにした
   - 命令フラグや呼出規約を含む結果型推定、vector 比較、`extractvalue` の失敗時 fallback を修正した
   - ユーザー定義関数 hover、ゼロ幅 range の Code Action、verifier runner、parser / lexer 境界テストを補強した
+- [x] **VSCode E2E 回帰テスト拡充**（2026-06-23）
+  - fixture workspace を起動し、completion / documentSymbol / references / foldingRange / documentLink を VSCode command 経由で確認した
+  - workspace symbol / call hierarchy / diagnostics / quick fix / format の代表経路を extension host 上で確認した
+  - 外部 verifier は fixture 設定で無効化し、環境差分を避けた
 
 ## メモ
 

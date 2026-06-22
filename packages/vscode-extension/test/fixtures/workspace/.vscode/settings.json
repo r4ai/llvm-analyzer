@@ -1,0 +1,4 @@
+{
+  "llvm-analyzer.verifier.enabled": false,
+  "llvm-analyzer.diagnostics.verifier.enabled": false
+}

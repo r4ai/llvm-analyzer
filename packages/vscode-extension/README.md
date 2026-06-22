@@ -35,6 +35,8 @@ LLVM IR (`.ll`) 向けの VSCode 拡張機能。
 
 ## 開発
 
+`test:e2e` は VSCode Extension Host で fixture workspace を開き、主要 LSP 経路を VSCode command 経由で確認します。
+
 ```sh
 pnpm --filter llvm-analyzer-vscode build
 pnpm --filter llvm-analyzer-vscode test:e2e
