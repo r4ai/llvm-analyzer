@@ -17,7 +17,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@llvm-analyzer/analyzer": "workspace:*",
     "@llvm-analyzer/language-server": "workspace:*",
+    "@llvm-analyzer/parser": "workspace:*",
     "vscode-languageclient": "^10.0.0"
   },
   "devDependencies": {
@@ -47,6 +49,12 @@
         "language": "llvm",
         "scopeName": "source.llvm",
         "path": "./syntaxes/llvm.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "llvm-analyzer.showControlFlowGraph",
+        "title": "LLVM IR: Show Control Flow Graph"
       }
     ],
     "configuration": {
@@ -149,6 +157,7 @@
     }
   },
   "activationEvents": [
+    "onCommand:llvm-analyzer.showControlFlowGraph",
     "onLanguage:llvm"
   ],
   "engines": {

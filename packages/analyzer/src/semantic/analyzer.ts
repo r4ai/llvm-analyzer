@@ -24,6 +24,8 @@ import type {
   AnalyzeOptions,
   AnalyzerDiagnostic,
   DirectCall,
+  ControlFlowGraph,
+  ControlFlowEdge,
   DocumentSymbol,
   SemanticModel,
   SemanticSymbol,
@@ -119,6 +121,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   const occurrences: Occurrence[] = [];
   const diagnostics: AnalyzerDiagnostic[] = [];
   const directCalls: DirectCall[] = [];
+  const controlFlowGraphs: ControlFlowGraph[] = [];
   const reportUndefinedReferences = options.reportUndefinedReferences ?? true;
 
   /**
@@ -225,6 +228,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
       }
     }
     directCalls.push(...extractDirectCalls(entry, options.source));
+    controlFlowGraphs.push(extractControlFlowGraph(entry, options.source));
     validateFunctionBody(entry, diagnostics);
   }
 
@@ -286,7 +290,15 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     }
   }
 
-  return makeModel(symbols, occurrences, diagnostics, ast.entries, functionScopes, directCalls);
+  return makeModel(
+    symbols,
+    occurrences,
+    diagnostics,
+    ast.entries,
+    functionScopes,
+    directCalls,
+    controlFlowGraphs,
+  );
 };
 
 /**
@@ -461,6 +473,65 @@ const directCalleeRef = (
   return instruction.operands.find(
     (operand) => operand.kind === "GlobalRef" && operand.range.start.offset === absoluteStart,
   );
+};
+
+const CFG_TERMINATOR_OPCODES = new Set(["br", "switch", "indirectbr", "invoke", "callbr"]);
+
+/** 関数定義から静的に分かる CFG を抽出する。 */
+const extractControlFlowGraph = (
+  entry: FunctionDefinition,
+  source: string | undefined,
+): ControlFlowGraph => {
+  const blocks = entry.blocks.map((block, index) => ({
+    name: block.label?.name ?? (index === 0 ? "entry" : `block${index}`),
+    range: block.range,
+  }));
+  const knownLabels = new Set(blocks.map((block) => block.name));
+  const edges: ControlFlowEdge[] = [];
+
+  for (let index = 0; index < entry.blocks.length; index += 1) {
+    const block = entry.blocks[index];
+    if (!block) continue;
+    const sourceName = blocks[index]?.name ?? `block${index}`;
+    const terminator = block.instructions.find(
+      (instruction) => instruction.opcode && CFG_TERMINATOR_OPCODES.has(instruction.opcode),
+    );
+    if (!terminator) continue;
+    for (const targetName of successorLabels(terminator, knownLabels, source)) {
+      edges.push({ from: sourceName, to: targetName, range: terminator.range });
+    }
+  }
+
+  return { functionName: entry.defines.name, range: entry.range, blocks, edges };
+};
+
+const successorLabels = (
+  instruction: Instruction,
+  knownLabels: ReadonlySet<string>,
+  source: string | undefined,
+): readonly string[] => {
+  const line = source?.slice(instruction.range.start.offset, instruction.range.end.offset);
+  const labels = successorLabelNamesByOpcode(instruction.opcode, line);
+  return labels.filter((name) => knownLabels.has(name));
+};
+
+const successorLabelNamesByOpcode = (
+  opcode: string | undefined,
+  instructionText: string | undefined,
+): readonly string[] => {
+  if (!opcode || !instructionText) return [];
+  const tokens = tokenize(instructionText).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  const labels = tokens
+    .filter((token, index) => token.kind === "LocalIdentifier" && isSuccessorLabel(tokens, index))
+    .map((token) => labelNameOf({ kind: "LabelRef", name: token.value, range: token.range }))
+    .filter((_name, index, all) => all.indexOf(_name) === index);
+  return labels;
+};
+
+const isSuccessorLabel = (tokens: readonly Token[], index: number): boolean => {
+  return tokens[index - 1]?.value === "label";
 };
 
 /**
@@ -770,6 +841,7 @@ const indexOfWord = (source: string, word: string): number => {
  * @param entries documentSymbol 構築に使うトップレベルエントリ列。
  * @param functionScopes 関数名から関数スコープへの対応。
  * @param directCalls 関数本体から抽出した直接呼び出し。
+ * @param controlFlowGraphs 関数本体から抽出した CFG。
  * @returns 公開用の意味モデル。
  *
  * @remarks
@@ -783,6 +855,7 @@ const makeModel = (
   entries: readonly TopLevelEntry[],
   functionScopes: ReadonlyMap<string, Scope>,
   directCalls: readonly DirectCall[],
+  controlFlowGraphs: readonly ControlFlowGraph[],
 ): SemanticModel => {
   const symbols = mutableSymbols.map((symbol) => freezeSymbol(symbol));
   const byId = new Map(symbols.map((symbol) => [symbol.id, symbol]));
@@ -804,6 +877,9 @@ const makeModel = (
     referencesOf: (symbolId) => mutableById.get(symbolId)?.references.toSorted(compareRefs) ?? [],
     documentSymbols: () => makeDocumentSymbols(entries, functionScopes),
     directCalls: () => directCalls,
+    controlFlowGraphs: () => controlFlowGraphs,
+    controlFlowGraphAt: (position) =>
+      controlFlowGraphs.find((graph) => contains(graph.range, position)),
     diagnostics: () => diagnostics,
   };
 };

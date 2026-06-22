@@ -1,6 +1,8 @@
 import * as path from "node:path";
-import type { ExtensionContext } from "vscode";
-import { workspace } from "vscode";
+import { analyze, formatControlFlowGraphAsMermaid } from "@llvm-analyzer/analyzer";
+import { parseModule } from "@llvm-analyzer/parser";
+import type { ExtensionContext, TextEditor } from "vscode";
+import { commands, window, workspace } from "vscode";
 import {
   LanguageClient,
   TransportKind,
@@ -44,6 +46,9 @@ export const activate = async (context: ExtensionContext): Promise<void> => {
     clientOptions,
   );
   context.subscriptions.push(client);
+  context.subscriptions.push(
+    commands.registerCommand("llvm-analyzer.showControlFlowGraph", showControlFlowGraph),
+  );
   await client.start();
 };
 
@@ -51,4 +56,39 @@ export const activate = async (context: ExtensionContext): Promise<void> => {
 export const deactivate = async (): Promise<void> => {
   await client?.stop();
   client = undefined;
+};
+
+/**
+ * 現在の LLVM IR 関数の CFG を Mermaid として表示する。
+ *
+ * @returns 表示した Mermaid テキスト。関数外では undefined。
+ */
+export const showControlFlowGraph = async (): Promise<string | undefined> => {
+  const editor = window.activeTextEditor;
+  if (!editor || editor.document.languageId !== "llvm") return undefined;
+  const mermaid = mermaidForEditor(editor);
+  if (!mermaid) {
+    void window.showInformationMessage("現在位置に LLVM IR 関数がありません。");
+    return undefined;
+  }
+  const document = await workspace.openTextDocument({
+    language: "markdown",
+    content: ["```mermaid", mermaid, "```", ""].join("\n"),
+  });
+  await window.showTextDocument(document, { preview: false });
+  return mermaid;
+};
+
+const mermaidForEditor = (editor: TextEditor): string | undefined => {
+  const source = editor.document.getText();
+  const parse = parseModule(source);
+  const model = analyze(parse.ast, { source, reportUndefinedReferences: false });
+  const position = toAnalyzerPosition(editor.document.offsetAt(editor.selection.active), editor);
+  const graph = model.controlFlowGraphAt(position);
+  return graph ? formatControlFlowGraphAsMermaid(graph) : undefined;
+};
+
+const toAnalyzerPosition = (offset: number, editor: TextEditor) => {
+  const position = editor.document.positionAt(offset);
+  return { offset, line: position.line, column: position.character };
 };

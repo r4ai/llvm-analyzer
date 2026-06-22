@@ -14,6 +14,7 @@ SSA 値の推定型は Inlay Hints として表示でき、設定で無効化で
 `call` / `invoke` / `callbr` の直接呼び出しは Call Hierarchy で callers / callees を辿れる。
 `source_filename` と `!DIFile` の実在ファイルは Document Link として開ける。
 行頭・行末空白と関数内インデントは Format / Range Format で安定化できる。
+現在関数の Control Flow Graph は Mermaid として表示できる。
 
 - 全体設計: [docs/design.md](docs/design.md)
 - ロードマップ: [docs/roadmap.md](docs/roadmap.md)

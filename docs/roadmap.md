@@ -63,9 +63,10 @@
   - まず range format を対象に、選択範囲内の空白・インデントを安定化する
   - 意味を変える pretty print は避け、AST を壊さない edit に絞る
   - トップレベル・ラベル・閉じブレースは左詰め、関数内の命令・コメントは2スペース字下げにする
-- [ ] **Control Flow Graph 表示**
+- [x] **Control Flow Graph 表示**（2026-06-22）
   - 関数単位の CFG モデルを analyzer に追加する
   - VSCode command から現在関数の Mermaid / DOT を表示またはコピーできるようにする
+  - 初期実装は Mermaid を untitled markdown document として表示する
 - [ ] **Code Action / Quick Fix**
   - stable diagnostic code を整備し、修正可能な診断だけ quick fix を返す
   - 近い名前への置換、verifier 設定案内、終端命令後の通常命令への安全な候補に絞る

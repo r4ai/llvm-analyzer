@@ -156,6 +156,36 @@ export interface DirectCall {
   readonly range: Range;
 }
 
+/** 関数単位の制御フローグラフ。 */
+export interface ControlFlowGraph {
+  /** 対象関数名。 */
+  readonly functionName: string;
+  /** 関数定義全体の範囲。 */
+  readonly range: Range;
+  /** 基本ブロック一覧。 */
+  readonly blocks: readonly ControlFlowBlock[];
+  /** 静的に抽出できた successor 辺。 */
+  readonly edges: readonly ControlFlowEdge[];
+}
+
+/** CFG の基本ブロックノード。 */
+export interface ControlFlowBlock {
+  /** 表示用ブロック名。暗黙ブロックは `entry`。 */
+  readonly name: string;
+  /** ブロック全体の範囲。 */
+  readonly range: Range;
+}
+
+/** CFG の有向辺。 */
+export interface ControlFlowEdge {
+  /** 遷移元ブロック名。 */
+  readonly from: string;
+  /** 遷移先ブロック名。 */
+  readonly to: string;
+  /** successor を記述した終端命令の範囲。 */
+  readonly range: Range;
+}
+
 /**
  * 解析済み意味モデル。
  *
@@ -215,6 +245,19 @@ export interface SemanticModel {
    * @returns `call` / `invoke` / `callbr` から静的に分かる `@callee` の列。
    */
   directCalls(): readonly DirectCall[];
+  /**
+   * 関数単位の CFG を返す。
+   *
+   * @returns `br` / `switch` / `indirectbr` / `invoke` / `callbr` から静的に分かる successor。
+   */
+  controlFlowGraphs(): readonly ControlFlowGraph[];
+  /**
+   * 指定位置を含む関数の CFG を返す。
+   *
+   * @param position 照会するソース位置。
+   * @returns 位置が関数定義内なら対応する CFG。範囲外なら undefined。
+   */
+  controlFlowGraphAt(position: Position): ControlFlowGraph | undefined;
   /**
    * 解析時に収集した意味診断を返す。
    *

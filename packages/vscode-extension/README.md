@@ -14,6 +14,7 @@ LLVM IR (`.ll`) 向けの VSCode 拡張機能。
 - `call` / `invoke` / `callbr` の直接呼び出しを辿る Call Hierarchy。
 - `source_filename` と `!DIFile` の実在ファイルを開く Document Link。
 - 行頭・行末空白と関数内インデントを安定化する Format / Range Format。
+- 現在関数の Control Flow Graph を Mermaid として表示する command。
 
 ## 設定
 
