@@ -1,5 +1,9 @@
 #!/usr/bin/env node
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  FileChangeType,
   ProposedFeatures,
   TextDocumentSyncKind,
   createConnection,
@@ -40,15 +44,21 @@ import {
   runExternalVerifier,
   type ExternalVerifierSettings,
 } from "./lsp/verifier.ts";
+import {
+  WorkspaceSymbolIndex,
+  workspaceSymbolProviderCapability,
+} from "./lsp/workspace-symbols.ts";
 
 const DIAGNOSTIC_DEBOUNCE_MS = 150;
 const VERIFIER_CONFIG_SECTION = "llvm-analyzer.verifier";
 const DIAGNOSTICS_CONFIG_SECTION = "llvm-analyzer.diagnostics";
 const INLAY_HINTS_CONFIG_SECTION = "llvm-analyzer.inlayHints";
+const SKIPPED_WORKSPACE_DIRS = new Set([".git", "node_modules", "dist", "coverage"]);
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 const snapshots = new Map<string, DocumentSnapshot>();
+const workspaceSymbols = new WorkspaceSymbolIndex();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const verifierTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const verifierControllers = new Map<string, AbortController>();
@@ -56,9 +66,11 @@ let supportsConfiguration = false;
 let verifierSettingsCache: Promise<ExternalVerifierSettings> | undefined;
 let diagnosticSettingsCache: Promise<DiagnosticSettings> | undefined;
 let inlayHintSettingsCache: Promise<InlayHintSettings> | undefined;
+let initialWorkspaceFolderUris: readonly string[] = [];
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
   supportsConfiguration = params.capabilities.workspace?.configuration === true;
+  initialWorkspaceFolderUris = params.workspaceFolders?.map((folder) => folder.uri) ?? [];
   return {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
@@ -66,6 +78,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       definitionProvider: true,
       referencesProvider: true,
       documentSymbolProvider: true,
+      workspaceSymbolProvider: workspaceSymbolProviderCapability,
       completionProvider: { resolveProvider: false },
       renameProvider: { prepareProvider: false },
       foldingRangeProvider: true,
@@ -77,6 +90,10 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       },
     },
   };
+});
+
+connection.onInitialized(() => {
+  void indexWorkspaceFolders(initialWorkspaceFolderUris);
 });
 
 connection.onDidChangeConfiguration(() => {
@@ -97,6 +114,19 @@ documents.onDidClose((event) => {
   snapshots.delete(event.document.uri);
   clearPending(event.document.uri);
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+  if (isLlFileUri(event.document.uri)) void closeWorkspaceDocument(event.document.uri);
+});
+
+connection.onDidChangeWatchedFiles((params) => {
+  for (const change of params.changes) {
+    if (!isLlFileUri(change.uri)) continue;
+    if (change.type === FileChangeType.Deleted) {
+      workspaceSymbols.delete(change.uri);
+      snapshots.delete(change.uri);
+      continue;
+    }
+    void indexFile(change.uri);
+  }
 });
 
 connection.onHover((params) => {
@@ -118,6 +148,8 @@ connection.onDocumentSymbol((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
   return snapshot ? getDocumentSymbols(snapshot) : [];
 });
+
+connection.onWorkspaceSymbol((params) => workspaceSymbols.search(params.query));
 
 connection.onCompletion((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
@@ -160,6 +192,9 @@ function scheduleAnalysis(document: TextDocument): void {
     setTimeout(() => {
       const snapshot = makeDocumentSnapshot(document.uri, document.getText(), document.version);
       snapshots.set(document.uri, snapshot);
+      if (isLlFileUri(document.uri)) {
+        workspaceSymbols.upsertOpenDocument(document.uri, document.getText(), document.version);
+      }
       void diagnosticSettings()
         .then((settings) => {
           if (!isSnapshotCurrent(snapshot)) return;
@@ -293,7 +328,70 @@ function snapshotFor(uri: string): DocumentSnapshot | undefined {
   if (cached?.version === current.version) return cached;
   const snapshot = makeDocumentSnapshot(uri, current.getText(), current.version);
   snapshots.set(uri, snapshot);
+  if (isLlFileUri(uri))
+    workspaceSymbols.upsertOpenDocument(uri, current.getText(), current.version);
   return snapshot;
+}
+
+async function indexWorkspaceFolders(folderUris: readonly string[]): Promise<void> {
+  await Promise.all(folderUris.map((folderUri) => indexWorkspaceFolder(folderUri)));
+}
+
+async function indexWorkspaceFolder(folderUri: string): Promise<void> {
+  let rootPath: string;
+  try {
+    rootPath = fileURLToPath(folderUri);
+  } catch {
+    return;
+  }
+  const filePaths = await collectLlFiles(rootPath);
+  await Promise.all(filePaths.map((filePath) => indexFile(pathToFileURL(filePath).toString())));
+}
+
+async function collectLlFiles(dir: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        return SKIPPED_WORKSPACE_DIRS.has(entry.name) ? [] : collectLlFiles(fullPath);
+      }
+      return entry.isFile() && entry.name.endsWith(".ll") ? [fullPath] : [];
+    }),
+  );
+  return nested.flat();
+}
+
+async function indexFile(uri: string): Promise<void> {
+  try {
+    const openDocument = documents.get(uri);
+    if (openDocument) {
+      workspaceSymbols.upsertOpenDocument(uri, openDocument.getText(), openDocument.version);
+      return;
+    }
+    const text = await readFile(fileURLToPath(uri), "utf8");
+    workspaceSymbols.upsertFile(uri, text);
+  } catch {
+    workspaceSymbols.delete(uri);
+  }
+}
+
+async function closeWorkspaceDocument(uri: string): Promise<void> {
+  try {
+    const text = await readFile(fileURLToPath(uri), "utf8");
+    workspaceSymbols.closeOpenDocument(uri, text);
+  } catch {
+    workspaceSymbols.closeOpenDocument(uri);
+  }
+}
+
+function isLlFileUri(uri: string): boolean {
+  return uri.startsWith("file:") && uri.endsWith(".ll");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

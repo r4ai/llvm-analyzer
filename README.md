@@ -10,6 +10,7 @@ LLVM IR 型構文は scalar / pointer / vector / array / struct / function type 
 PATH 上に `llvm-as` がある場合は、編集停止後に外部 LLVM verifier を実行し、追加診断として表示する。
 parser / analyzer / external verifier の診断は、ソースごとに有効化と重大度を設定できる。
 SSA 値の推定型は Inlay Hints として表示でき、設定で無効化できる。
+ワークスペース内の `.ll` ファイルにある関数・グローバル・名前付き型・メタデータなどは Workspace Symbols で検索できる。
 
 - 全体設計: [docs/design.md](docs/design.md)
 - ロードマップ: [docs/roadmap.md](docs/roadmap.md)

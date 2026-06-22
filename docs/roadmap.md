@@ -49,9 +49,9 @@
 - [x] **Inlay Hints**（2026-06-22）
   - SSA 値の推定型を `textDocument/inlayHint` で表示する
   - 型 hint を `llvm-analyzer.inlayHints.types.enabled` で切り替えられるようにする
-- [ ] **Workspace Symbols**
-  - ワークスペース内の `.ll` ファイルを索引化し、`@function` / `@global` / `%type` / `!metadata` などを検索可能にする
-  - ファイル変更・削除時に索引を更新する
+- [x] **Workspace Symbols**（2026-06-22）
+  - ワークスペース内の `.ll` ファイルを索引化し、`@function` / `@global` / `%type` / `!metadata` / 属性グループなどを検索可能にする
+  - ファイル変更・削除時に URI 単位で索引を更新する
 - [ ] **Call Hierarchy**
   - `call` / `invoke` / `callbr` の直接呼び出しを抽出し、callers / callees を返す
   - Workspace Symbols の索引を再利用して複数ファイルの直接呼び出しを扱う
