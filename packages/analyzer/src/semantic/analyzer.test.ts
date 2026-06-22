@@ -204,6 +204,63 @@ describe("analyze: 定義参照インデックス", () => {
     expect(model.definitionAt(posOf(source, "%T", 1))?.kind).toBe("parameter");
     expect(model.diagnostics()).toEqual([]);
   });
+
+  it("値位置のローカル参照を同名の名前付き型へ誤解決しない", () => {
+    const source = ["%T = type { i32 }", "define i32 @f() {", "entry:", "  ret i32 %T", "}"].join(
+      "\n",
+    );
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%T", 1))).toBeUndefined();
+    expect(model.diagnostics()).toEqual([
+      expect.objectContaining({
+        code: "undefined-reference",
+        message: "`%T` が定義されていません",
+      }),
+    ]);
+  });
+
+  it("値位置の直後が次行のローカル定義でも名前付き型へ誤解決しない", () => {
+    const source = [
+      "%T = type { i32 }",
+      "define i32 @f() {",
+      "entry:",
+      "  %x = add i32 0, %T",
+      "  %next = add i32 1, 2",
+      "  ret i32 %next",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%T", 1))).toBeUndefined();
+    expect(model.diagnostics()).toEqual([
+      expect.objectContaining({
+        code: "undefined-reference",
+        message: "`%T` が定義されていません",
+      }),
+    ]);
+  });
+
+  it("トップレベルの型位置にある名前付き型参照は型定義へ解決する", () => {
+    const source = [
+      "%Inner = type { i32 }",
+      "%Outer = type { %Inner }",
+      "@g = global %Inner zeroinitializer",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%Inner", 1))?.kind).toBe("type");
+    expect(model.definitionAt(posOf(source, "%Inner", 2))?.kind).toBe("type");
+    expect(model.diagnostics()).toEqual([]);
+  });
+
+  it("複数行の型定義内にある名前付き型参照を型定義へ解決する", () => {
+    const source = ["%Inner = type { i32 }", "%Outer = type {", "  %Inner", "}"].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%Inner", 1))?.kind).toBe("type");
+    expect(model.diagnostics()).toEqual([]);
+  });
 });
 
 describe("analyze: 診断", () => {
@@ -374,11 +431,12 @@ describe("analyze: 型解決と documentSymbol", () => {
     ["%result", "select i1 %c, i32 %a, i32 %b", "i32"],
     ["%result", "extractelement <4 x i32> %vec, i32 0", "i32"],
     ["%result", "extractvalue { i32, i1 } %pair, 1", "i1"],
+    ["%result", "extractvalue { { i32, i8 }, i1 } %nested, 0", "{ i32, i8 }"],
     ["%result", "cmpxchg ptr %p, i32 %old, i32 %new seq_cst monotonic", "{ i32, i1 }"],
     ["%result", "atomicrmw add ptr %p, i32 1 seq_cst", "i32"],
   ])("LangRef と opcode 直後の型が異なる %s = %s の結果型を推定する", (name, instruction, type) => {
     const source = [
-      "define void @f(i1 %c, i32 %a, i32 %b, <4 x i32> %vec, { i32, i1 } %pair, ptr %p, i32 %old, i32 %new) {",
+      "define void @f(i1 %c, i32 %a, i32 %b, <4 x i32> %vec, { i32, i1 } %pair, { { i32, i8 }, i1 } %nested, ptr %p, i32 %old, i32 %new) {",
       "entry:",
       `  ${name} = ${instruction}`,
       "  ret void",
@@ -386,6 +444,59 @@ describe("analyze: 型解決と documentSymbol", () => {
     ].join("\n");
 
     expect(modelOf(source).symbolAt(posOf(source, name))?.type).toBe(type);
+  });
+
+  it("非集約型への extractvalue は誤った結果型を付けない", () => {
+    const source = [
+      "define void @f(i32 %x) {",
+      "entry:",
+      "  %bad = extractvalue i32 %x, 0",
+      "  ret void",
+      "}",
+    ].join("\n");
+
+    expect(modelOf(source).symbolAt(posOf(source, "%bad"))?.type).toBeUndefined();
+  });
+
+  it.each([
+    ["%sum", "add nsw i32 %a, %b", "i32"],
+    ["%loaded", "load volatile i32, ptr %p", "i32"],
+    ["%called", "call fastcc i64 @callee()", "i64"],
+    ["%rmw", 'atomicrmw syncscope("singlethread") add ptr %p, i32 1 seq_cst', "i32"],
+  ])("命令フラグを飛ばして %s = %s の結果型を推定する", (name, instruction, type) => {
+    const source = [
+      "declare fastcc i64 @callee()",
+      "define void @f(i32 %a, i32 %b, ptr %p) {",
+      "entry:",
+      `  ${name} = ${instruction}`,
+      "  ret void",
+      "}",
+    ].join("\n");
+
+    expect(modelOf(source).symbolAt(posOf(source, name))?.type).toBe(type);
+  });
+
+  it("命令フラグだけで型が無い壊れた命令には結果型を付けない", () => {
+    const source = ["define void @f() {", "entry:", "  %bad = add nsw", "  ret void", "}"].join(
+      "\n",
+    );
+
+    expect(modelOf(source).symbolAt(posOf(source, "%bad"))?.type).toBeUndefined();
+  });
+
+  it.each([
+    ["icmp eq <4 x i32> %a, %b", "<4 x i1>"],
+    ["fcmp olt <vscale x 2 x float> %x, %y", "<vscale x 2 x i1>"],
+  ])("vector 比較 %s の結果型を lane ごとの i1 として推定する", (instruction, type) => {
+    const source = [
+      "define void @f(<4 x i32> %a, <4 x i32> %b, <vscale x 2 x float> %x, <vscale x 2 x float> %y) {",
+      "entry:",
+      `  %cmp = ${instruction}`,
+      "  ret void",
+      "}",
+    ].join("\n");
+
+    expect(modelOf(source).symbolAt(posOf(source, "%cmp"))?.type).toBe(type);
   });
 
   it("型 AST ベースで複合型の引数と命令結果型を推定する", () => {

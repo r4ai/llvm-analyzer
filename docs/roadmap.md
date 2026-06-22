@@ -75,6 +75,10 @@
   - label rename の定義・参照置換、LangRef とズレる代表命令の結果型推定を修正
   - completion の関数スコープ絞り込み、hover range と opcode/type docs、references の `includeDeclaration` 対応を追加
   - verifier / feature adapter / analyzer / parser / file reference / extension 起動設定の境界テストと E2E を補強
+- [x] **実装監査とテスト補強**（2026-06-22）
+  - `%T` の型名とローカル値を型位置・値位置で分け、値位置の未定義参照を誤って型へ解決しないようにした
+  - 命令フラグや呼出規約を含む結果型推定、vector 比較、`extractvalue` の失敗時 fallback を修正した
+  - ユーザー定義関数 hover、ゼロ幅 range の Code Action、verifier runner、parser / lexer 境界テストを補強した
 
 ## メモ
 

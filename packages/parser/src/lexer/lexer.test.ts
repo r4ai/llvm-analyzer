@@ -104,10 +104,14 @@ describe("tokenize: 識別子（接頭辞付き）", () => {
     expect(kinds("#dbg_value")).toEqual([["DebugRecord", "#dbg_value"]]);
   });
 
-  it("数字を伴わない # は Punctuation", () => {
+  it("数字や dbg_ を伴わない # は Punctuation", () => {
     expect(kinds("# x")).toEqual([
       ["Punctuation", "#"],
       ["Identifier", "x"],
+    ]);
+    expect(kinds("#custom")).toEqual([
+      ["Punctuation", "#"],
+      ["Identifier", "custom"],
     ]);
   });
 

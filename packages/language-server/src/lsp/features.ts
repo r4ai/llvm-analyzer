@@ -147,9 +147,6 @@ export const getHover = (snapshot: DocumentSnapshot, position: LspPosition): Hov
   const { symbol, ref } = occurrence;
   const lines = [`\`${symbol.name}\``, "", `種類: ${symbol.kind}`];
   if (symbol.type) lines.push(`型: ${symbol.type}`);
-  const doc =
-    symbol.kind === "function" ? opcodeDocs.get(symbol.name.replace(/^@/u, "")) : undefined;
-  if (doc) lines.push("", doc.markdown);
   return {
     contents: {
       kind: MarkupKind.Markdown,
@@ -481,7 +478,16 @@ const lineRange = (snapshot: DocumentSnapshot, line: number): LspRange => {
 };
 
 const rangesOverlap = (left: LspRange, right: LspRange): boolean =>
-  comparePosition(left.start, right.end) < 0 && comparePosition(right.start, left.end) < 0;
+  rangeIsEmpty(right)
+    ? positionInHalfOpenRange(right.start, left)
+    : rangeIsEmpty(left)
+      ? positionInHalfOpenRange(left.start, right)
+      : comparePosition(left.start, right.end) < 0 && comparePosition(right.start, left.end) < 0;
+
+const rangeIsEmpty = (range: LspRange): boolean => comparePosition(range.start, range.end) === 0;
+
+const positionInHalfOpenRange = (position: LspPosition, range: LspRange): boolean =>
+  comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) < 0;
 
 const editDistance = (left: string, right: string): number => {
   const previous = Array.from({ length: right.length + 1 }, (_value, index) => index);

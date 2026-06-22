@@ -129,6 +129,8 @@ describe("diagnostic settings", () => {
   });
 
   it("不正な設定値は既定値へ正規化する", () => {
+    expect(normalizeDiagnosticSettings(undefined)).toEqual(defaultDiagnosticSettings);
+
     expect(
       normalizeDiagnosticSettings({
         parser: { enabled: "no", severity: "loud" },

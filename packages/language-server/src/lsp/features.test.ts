@@ -17,6 +17,7 @@ import {
   makeDocumentSnapshot,
   defaultInlayHintSettings,
   inlayHintProviderCapability,
+  semanticTokenLegend,
   normalizeInlayHintSettings,
   formattingProviderCapability,
   codeActionProviderCapability,
@@ -34,6 +35,25 @@ const source = [
   "}",
   "",
 ].join("\n");
+
+/** flat な semantic token data を LSP の5要素単位へ分ける。 */
+const chunks = (data: readonly number[], size: number): number[][] => {
+  const result: number[][] = [];
+  for (let index = 0; index < data.length; index += size) {
+    result.push(data.slice(index, index + size));
+  }
+  return result;
+};
+
+/** hover contents が markdown object のときだけ本文を返す。 */
+type HoverContents = NonNullable<ReturnType<typeof getHover>>["contents"];
+
+const markdownValue = (contents: HoverContents | undefined): string => {
+  if (typeof contents === "object" && !Array.isArray(contents) && "value" in contents) {
+    return String(contents.value);
+  }
+  return "";
+};
 
 describe("LSP 機能アダプタ", () => {
   const snapshot = makeDocumentSnapshot("file:///hello.ll", source);
@@ -68,6 +88,21 @@ describe("LSP 機能アダプタ", () => {
 
     expect(tokens.data.length).toBeGreaterThan(0);
     expect(tokens.resultId).toBe(snapshot.version.toString());
+  });
+
+  it("semanticTokens は type と namespace 系シンボルも分類する", () => {
+    const classified = makeDocumentSnapshot(
+      "file:///semantic-kinds.ll",
+      ["%T = type { i32 }", "!0 = !{}", "attributes #0 = { nounwind }"].join("\n"),
+    );
+    const tokenTypeIndexes = chunks(getSemanticTokens(classified).data, 5).map((chunk) => chunk[3]);
+
+    expect(tokenTypeIndexes).toEqual(
+      expect.arrayContaining([
+        semanticTokenLegend.tokenTypes.indexOf("type"),
+        semanticTokenLegend.tokenTypes.indexOf("namespace"),
+      ]),
+    );
   });
 
   it("diagnostics は parser と analyzer の診断をまとめる", () => {
@@ -138,6 +173,12 @@ describe("LSP 機能アダプタ", () => {
     ]);
   });
 
+  it("rename は sigil なしの新名をシンボル種別に合わせて補正する", () => {
+    const edit = getRenameEdit(snapshot, { line: 1, character: 1 }, "renamed");
+
+    expect(edit?.changes?.[snapshot.uri]?.map((change) => change.newText)).toEqual(["@renamed"]);
+  });
+
   it("rename はラベル定義とラベル参照の置換文字列を分ける", () => {
     const edit = getRenameEdit(snapshot, { line: 6, character: 1 }, "%done");
 
@@ -173,6 +214,20 @@ describe("LSP 機能アダプタ", () => {
       kind: "markdown",
       value: expect.stringContaining("32 bit"),
     });
+  });
+
+  it("hover はユーザー定義関数名に同名 opcode の説明を混ぜない", () => {
+    const userFunction = makeDocumentSnapshot(
+      "file:///hover-user-function.ll",
+      ["define void @add() {", "entry:", "  ret void", "}"].join("\n"),
+    );
+    const hover = getHover(userFunction, { line: 0, character: 14 });
+
+    expect(hover?.contents).toMatchObject({
+      kind: "markdown",
+      value: expect.stringContaining("種類: function"),
+    });
+    expect(markdownValue(hover?.contents)).not.toContain("加算");
   });
 
   it("references は includeDeclaration=false で定義位置を除外する", () => {
@@ -393,6 +448,31 @@ describe("LSP 機能アダプタ", () => {
       }),
     ]);
     expect(codeActionProviderCapability).toEqual({ codeActionKinds: ["quickfix"] });
+  });
+
+  it("codeAction はゼロ幅 range が診断先頭にある場合も quick fix を返す", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-global-cursor.ll",
+      [
+        "@print = global i32 0",
+        "define void @f() {",
+        "entry:",
+        "  call void @pront()",
+        "  ret void",
+        "}",
+      ].join("\n"),
+    );
+    const diagnostics = getDiagnostics(broken);
+    const actions = getCodeActions(
+      broken,
+      {
+        start: { line: 3, character: 12 },
+        end: { line: 3, character: 12 },
+      },
+      diagnostics,
+    );
+
+    expect(actions.map((action) => action.title)).toEqual(["`@pront` を `@print` に置換"]);
   });
 
   it("codeAction は未定義ラベルを近いラベルへ置換する quick fix を返す", () => {

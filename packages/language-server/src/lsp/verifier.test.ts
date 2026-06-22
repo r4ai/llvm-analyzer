@@ -2,6 +2,7 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 import { describe, expect, it } from "vitest";
 import {
   defaultVerifierSettings,
+  nodeVerifierProcessRunner,
   runExternalVerifier,
   type VerifierProcessResult,
   type VerifierProcessRunner,
@@ -192,5 +193,84 @@ describe("runExternalVerifier", () => {
     );
 
     expect(received).toBe(controller.signal);
+  });
+
+  it("nodeVerifierProcessRunner は stdout / stderr / exit code を収集する", async () => {
+    const result = await nodeVerifierProcessRunner({
+      command: process.execPath,
+      args: [
+        "-e",
+        [
+          "process.stdin.setEncoding('utf8');",
+          "let input = '';",
+          "process.stdin.on('data', (chunk) => { input += chunk; });",
+          "process.stdin.on('end', () => {",
+          "  process.stdout.write(input.toUpperCase());",
+          "  process.stderr.write('diagnostic');",
+          "  process.exit(3);",
+          "});",
+        ].join(""),
+      ],
+      input: "ok",
+      timeoutMs: 1000,
+    });
+
+    expect(result).toEqual({
+      exitCode: 3,
+      stdout: "OK",
+      stderr: "diagnostic",
+    });
+  });
+
+  it("nodeVerifierProcessRunner は timeout で子プロセスを停止する", async () => {
+    const result = await nodeVerifierProcessRunner({
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => {}, 1000);"],
+      input: "",
+      timeoutMs: 10,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        exitCode: null,
+        timedOut: true,
+      }),
+    );
+  });
+
+  it("nodeVerifierProcessRunner は spawn error を結果として返す", async () => {
+    const result = await nodeVerifierProcessRunner({
+      command: "llvm-analyzer-missing-verifier-command",
+      args: [],
+      input: "",
+      timeoutMs: 1000,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        exitCode: null,
+        errorCode: "ENOENT",
+      }),
+    );
+  });
+
+  it("nodeVerifierProcessRunner は AbortSignal で実行中プロセスを中止する", async () => {
+    const controller = new AbortController();
+    const running = nodeVerifierProcessRunner({
+      command: process.execPath,
+      args: ["-e", "setTimeout(() => {}, 1000);"],
+      input: "",
+      timeoutMs: 1000,
+      signal: controller.signal,
+    });
+
+    controller.abort();
+
+    await expect(running).resolves.toEqual(
+      expect.objectContaining({
+        exitCode: null,
+        aborted: true,
+      }),
+    );
   });
 });

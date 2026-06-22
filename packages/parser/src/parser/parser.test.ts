@@ -301,6 +301,24 @@ describe("parseModule: 関数定義", () => {
     ]);
   });
 
+  it("ラベル前の use-list order directive は暗黙ブロックの directive にする", () => {
+    const fn = [
+      "define void @f(i32 %x) {",
+      "  uselistorder i32 %x, { 0 }",
+      "entry:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(entry.blocks.map((block) => block.label?.name)).toEqual([undefined, "entry"]);
+    expect(entry.blocks[0]?.directives?.map((directive) => directive.directive)).toEqual([
+      "uselistorder",
+    ]);
+    expect(entry.blocks[0]?.instructions).toEqual([]);
+  });
+
   it("数値ラベルで基本ブロックを分割する", () => {
     const fn = "define void @f() {\n0:\n  br label %1\n1:\n  ret void\n}";
     const entry = parseModule(fn).ast.entries[0];
@@ -316,6 +334,12 @@ describe("parseModule: 関数定義", () => {
     expect(entry.blocks[0]?.instructions[0]?.operands.map((operand) => operand.kind)).toEqual([
       "LabelRef",
     ]);
+  });
+
+  it("blockaddress でない壊れた括弧内の % 参照は LabelRef にしない", () => {
+    const entry = parseModule("@addr = constant ptr not_blockaddress, %target)").ast.entries[0];
+
+    expect(entry?.references.map((ref) => [ref.kind, ref.name])).toEqual([["LocalRef", "%target"]]);
   });
 });
 

@@ -17,6 +17,8 @@ describe("server config", () => {
   });
 
   it("verifier 設定を既定値つきで正規化する", () => {
+    expect(normalizeVerifierSettings(undefined)).toEqual(defaultVerifierSettings);
+
     expect(
       normalizeVerifierSettings({
         enabled: false,

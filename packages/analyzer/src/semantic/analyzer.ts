@@ -82,6 +82,14 @@ const CONVERSION_OPCODES = new Set([
   "addrspacecast",
 ]);
 
+const SPECIAL_RESULT_OPCODES = new Set([
+  "select",
+  "extractelement",
+  "extractvalue",
+  "cmpxchg",
+  "atomicrmw",
+]);
+
 const TERMINATOR_OPCODES = new Set([
   "ret",
   "br",
@@ -580,8 +588,7 @@ const resolveRef = (
   functionScope: Scope | undefined,
 ): MutableSymbol | undefined => {
   if (ref.kind === "LabelRef") return functionScope?.symbols.get(labelNameOf(ref));
-  if (ref.kind === "LocalRef")
-    return functionScope?.symbols.get(ref.name) ?? moduleScope.symbols.get(ref.name);
+  if (ref.kind === "LocalRef") return functionScope?.symbols.get(ref.name);
   if (MODULE_REF_KINDS.has(ref.kind)) return moduleScope.symbols.get(ref.name);
   return undefined;
 };
@@ -621,21 +628,51 @@ const resolveTypePositionRef = (
 /** 粗いトークン文脈から、ローカル識別子が型名として現れているかを判定する。 */
 const isTypePositionRef = (source: string | undefined, ref: IdentifierRef): boolean => {
   if (!source || ref.kind !== "LocalRef") return false;
-  const after = source.slice(ref.range.end.offset).trimStart();
-  if (after.startsWith("%") || after.startsWith("@")) return true;
-  if (after.startsWith("*")) {
-    const afterPointer = after.slice(1).trimStart();
-    if (afterPointer.startsWith("%") || afterPointer.startsWith("@")) return true;
-  }
   const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
+  const lineEndIndex = source.indexOf("\n", ref.range.end.offset);
+  const lineEnd = lineEndIndex < 0 ? source.length : lineEndIndex;
   const beforeTokens = tokenize(source.slice(lineStart, ref.range.start.offset)).filter(
     (token) => token.kind !== "Eof" && token.kind !== "Comment",
   );
+  const afterTokens = tokenize(source.slice(ref.range.end.offset, lineEnd)).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
   const previous = beforeTokens.at(-1);
+  const next = afterTokens[0];
+  if (next && isValueTokenAfterType(next)) return true;
+  if (next?.value === "*" && afterTokens[1] && isValueTokenAfterType(afterTokens[1])) return true;
   return (
     previous?.kind === "Opcode" ||
-    (previous?.kind === "Keyword" && (previous.value === "to" || previous.value === "type"))
+    (previous?.kind === "Keyword" && TYPE_PRECEDING_KEYWORDS.has(previous.value)) ||
+    beforeTokens.some((token) => token.kind === "Keyword" && token.value === "type") ||
+    isWithinTopLevelTypeDefinition(source, ref)
   );
+};
+
+const TYPE_PRECEDING_KEYWORDS = new Set(["constant", "global", "to", "type"]);
+
+const VALUE_TOKEN_AFTER_TYPE_KINDS = new Set<Token["kind"]>([
+  "LocalIdentifier",
+  "GlobalIdentifier",
+  "Number",
+  "String",
+  "Constant",
+]);
+
+/** 型名の直後に値が続く構文かを判定する。 */
+const isValueTokenAfterType = (token: Token): boolean =>
+  VALUE_TOKEN_AFTER_TYPE_KINDS.has(token.kind);
+
+/** 複数行の `%T = type { ... }` 内にある型参照かを保守的に判定する。 */
+const isWithinTopLevelTypeDefinition = (source: string, ref: IdentifierRef): boolean => {
+  const prefix = source.slice(0, ref.range.start.offset);
+  const previousTopLevelLocal = prefix.lastIndexOf("\n%");
+  const start =
+    previousTopLevelLocal < 0 ? (source.startsWith("%") ? 0 : -1) : previousTopLevelLocal + 1;
+  if (start < 0) return false;
+  const statementPrefix = source.slice(start, ref.range.start.offset);
+  if (!/^%[-A-Za-z$._0-9"]+\s*=\s*type\b/su.test(statementPrefix)) return false;
+  return !/\ndefine\b/u.test(statementPrefix);
 };
 
 /**
@@ -675,21 +712,23 @@ const inferInstructionResultType = (
 ): string | undefined => {
   if (!source || !instruction.opcode) return undefined;
   if (instruction.opcode === "alloca" || instruction.opcode === "getelementptr") return "ptr";
-  if (instruction.opcode === "icmp" || instruction.opcode === "fcmp") return "i1";
   const line = source.slice(instruction.range.start.offset, instruction.range.end.offset);
   const opcodeMatch = new RegExp(`(?:^|[\\s=])${escapeRegExp(instruction.opcode)}\\b`, "u").exec(
     line,
   );
   if (!opcodeMatch) return undefined;
   const afterOpcode = line.slice(opcodeMatch.index + opcodeMatch[0].length);
+  if (instruction.opcode === "icmp" || instruction.opcode === "fcmp")
+    return compareResultType(afterOpcode);
   if (CONVERSION_OPCODES.has(instruction.opcode)) {
     const toIndex = indexOfWord(afterOpcode, "to");
     if (toIndex < 0) return undefined;
     return leadingTypeText(afterOpcode.slice(toIndex + "to".length));
   }
   const specificType = inferInstructionResultTypeByOpcode(instruction.opcode, afterOpcode);
+  if (SPECIAL_RESULT_OPCODES.has(instruction.opcode)) return specificType;
   if (specificType !== undefined) return specificType;
-  return leadingTypeText(afterOpcode);
+  return firstTypeText(afterOpcode);
 };
 
 /**
@@ -798,9 +837,25 @@ const splitTopLevelTypeText = (source: string): readonly string[] => {
 
 /** atomicrmw は演算名の後にポインタ operand と値 operand が続く。 */
 const inferAtomicRmwResultType = (tokens: readonly Token[]): string | undefined => {
-  const withoutOperation = tokens.slice(1);
-  const segments = splitTopLevelSegments(withoutOperation);
+  const segments = splitTopLevelSegments(tokens);
   return leadingTypeOf(segments[1] ?? []);
+};
+
+/** `icmp` / `fcmp` の結果型を、スカラーまたは vector lane ごとの `i1` として推定する。 */
+const compareResultType = (afterOpcode: string): string => {
+  const comparedType = firstTypeText(afterOpcode);
+  const vector = vectorShape(comparedType);
+  return vector ? `<${vector.scalable ? "vscale x " : ""}${vector.length} x i1>` : "i1";
+};
+
+const vectorShape = (
+  type: string | undefined,
+): { readonly scalable: boolean; readonly length: number } | undefined => {
+  if (!type) return undefined;
+  const matched = /^<(?<scalable>vscale x )?(?<length>\d+) x .+>$/u.exec(type);
+  const length = matched?.groups?.length ? Number.parseInt(matched.groups.length, 10) : undefined;
+  if (length === undefined) return undefined;
+  return { scalable: matched?.groups?.scalable !== undefined, length };
 };
 
 /**
@@ -872,6 +927,20 @@ const leadingTypeText = (source: string): string | undefined =>
   leadingTypeTextFromTokens(
     tokenize(source).filter((token) => token.kind !== "Eof" && token.kind !== "Comment"),
   );
+
+/** 命令フラグや呼出規約を飛ばし、最初に読める型構文を取り出す。 */
+const firstTypeText = (source: string): string | undefined =>
+  firstTypeTextFromTokens(
+    tokenize(source).filter((token) => token.kind !== "Eof" && token.kind !== "Comment"),
+  );
+
+const firstTypeTextFromTokens = (tokens: readonly Token[]): string | undefined => {
+  for (let start = 0; start < tokens.length; start += 1) {
+    const type = leadingTypeTextFromTokens(tokens.slice(start));
+    if (type) return type;
+  }
+  return undefined;
+};
 
 /** トークン列の先頭から、型パーサが読める型だけを取り出す。 */
 const leadingTypeTextFromTokens = (tokens: readonly Token[]): string | undefined => {

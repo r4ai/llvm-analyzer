@@ -94,4 +94,17 @@ describe("CallHierarchyIndex", () => {
     index.delete("file:///callee.ll");
     expect(index.prepare("file:///callee.ll", { line: 0, character: 14 })).toEqual([]);
   });
+
+  it("不正な item data と未索引 callee は空結果にする", () => {
+    const index = new CallHierarchyIndex();
+    index.upsert(
+      "file:///caller.ll",
+      "define void @caller() {\n  call void @missing()\n  ret void\n}\n",
+    );
+    const caller = index.prepare("file:///caller.ll", { line: 0, character: 14 })[0]!;
+
+    expect(index.incoming({ ...caller, data: { uri: 1, name: null } })).toEqual([]);
+    expect(index.outgoing({ ...caller, data: undefined })).toEqual([]);
+    expect(index.outgoing(caller)).toEqual([]);
+  });
 });
