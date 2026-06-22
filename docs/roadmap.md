@@ -39,10 +39,10 @@
   - `llvm-as` など PATH 上の verifier を optional な追加診断ソースとして language-server に統合
   - debounce / cancellation / timeout / maxFileBytes / command missing 無視を実装
   - VSCode 設定で enabled / command / args / debounceMs / timeoutMs / maxFileBytes を変更可能にした
-- [ ] **型構文パーサ**
-  - LLVM IR の型構文を AST 化し、文字列ベースの軽量推定を段階的に置き換える
-  - scalar / pointer / vector / array / struct / function type / named type / opaque struct を対象にする
-  - hover / completion / inlay hints / diagnostics の基盤として analyzer へ接続する
+- [x] **型構文パーサ**（2026-06-22）
+  - `parseLlvmType(source)` で LLVM IR の型構文を AST 化し、`formatLlvmType(type)` で表示用文字列へ戻す
+  - scalar / pointer / vector / array / struct / function type / named type / opaque struct、`ptr addrspace(N)`、typed pointer、可変長引数、packed struct を対象にする
+  - analyzer の関数引数・命令結果の軽量型推定へ接続し、hover / completion / inlay hints / diagnostics の基盤にする
 - [ ] **診断レベル設定**
   - parser / analyzer / external verifier の診断ソースごとに有効化と severity を設定可能にする
   - 生成途中の IR や独自方言を扱うための抑制設定を language-server 側で提供する

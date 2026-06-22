@@ -8,7 +8,7 @@
  * 依存方向を保つため、このファイルは VSCode API や LSP 型へ依存しない。
  * LSP 固有の型変換は language-server パッケージで行う。
  */
-import { tokenize } from "@llvm-analyzer/parser";
+import { formatLlvmType, parseLlvmType, tokenize } from "@llvm-analyzer/parser";
 import type {
   BasicBlock,
   FunctionDefinition,
@@ -61,11 +61,6 @@ const MODULE_REF_KINDS = new Set<IdentifierRef["kind"]>([
   "AttributeGroupRef",
   "ComdatRef",
 ]);
-
-const TYPE_ATOM = String.raw`(?:(?:i\d+)|(?:b\d+)|ptr|void|label|metadata|token|float|double|half|bfloat|x86_fp80|fp128|ppc_fp128|x86_mmx|x86_amx|%[-A-Za-z$._0-9]+|%"[^"]+")`;
-const TYPE_PATTERN = new RegExp(String.raw`(?:^|[\s,(])(${TYPE_ATOM})\s*$`, "u");
-const LEADING_TYPE_PATTERN = new RegExp(String.raw`^\s*(${TYPE_ATOM})\b`, "u");
-const TO_TYPE_PATTERN = new RegExp(String.raw`\bto\s+(${TYPE_ATOM})\b`, "u");
 
 const CONVERSION_OPCODES = new Set([
   "trunc",
@@ -561,8 +556,8 @@ const resolveBlockAddressRef = (
  * @returns 推定できた LLVM IR 型。推定できない場合は undefined。
  *
  * @remarks
- * parser は命令内部を構造化しないため、ここでは元ソースの命令行からオペコード直後の型トークンだけを読む。
- * `add i32` や `load i32` のような単純な形を対象にし、複雑な型構文は将来の型パーサへ委ねる。
+ * parser は命令内部を構造化しないため、ここでは元ソースの命令行からオペコード直後の型構文を切り出す。
+ * 切り出した断片は parser の型パーサで検証し、読めた範囲だけを表示用の型として返す。
  */
 const inferInstructionResultType = (
   source: string | undefined,
@@ -578,9 +573,11 @@ const inferInstructionResultType = (
   if (!opcodeMatch) return undefined;
   const afterOpcode = line.slice(opcodeMatch.index + opcodeMatch[0].length);
   if (CONVERSION_OPCODES.has(instruction.opcode)) {
-    return afterOpcode.match(TO_TYPE_PATTERN)?.[1];
+    const toIndex = indexOfWord(afterOpcode, "to");
+    if (toIndex < 0) return undefined;
+    return leadingTypeText(afterOpcode.slice(toIndex + "to".length));
   }
-  return afterOpcode.match(LEADING_TYPE_PATTERN)?.[1];
+  return leadingTypeText(afterOpcode);
 };
 
 /**
@@ -598,7 +595,7 @@ const inferTypeBefore = (source: string | undefined, ref: IdentifierRef): string
   if (!source) return undefined;
   const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
   const before = source.slice(lineStart, ref.range.start.offset);
-  return inferLeadingParameterType(before) ?? before.match(TYPE_PATTERN)?.[1];
+  return inferLeadingParameterType(before) ?? trailingTypeText(before);
 };
 
 /**
@@ -615,19 +612,26 @@ const inferLeadingParameterType = (before: string): string | undefined => {
   const tokens = tokenize(before).filter(
     (token) => token.kind !== "Eof" && token.kind !== "Comment",
   );
-  let depth = 0;
+  let parenDepth = 0;
+  let typeDepth = 0;
   let segmentStart = 0;
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i];
     if (!token) continue;
-    if (token.value === "(") {
-      depth += 1;
-      if (depth === 1) segmentStart = i + 1;
-    } else if (token.value === ")") {
-      depth = Math.max(0, depth - 1);
-    } else if (token.value === "," && depth === 1) {
-      segmentStart = i + 1;
+    if (token.value === "(" && typeDepth === 0) {
+      parenDepth += 1;
+      if (parenDepth === 1) segmentStart = i + 1;
+      continue;
     }
+    if (token.value === ")" && typeDepth === 0) {
+      parenDepth = Math.max(0, parenDepth - 1);
+      continue;
+    }
+    if (token.value === "," && parenDepth === 1 && typeDepth === 0) {
+      segmentStart = i + 1;
+      continue;
+    }
+    if (parenDepth >= 1) typeDepth = updateTypeDepth(typeDepth, token.value);
   }
   const segment = tokens.slice(segmentStart);
   return leadingTypeOf(segment);
@@ -637,34 +641,85 @@ const inferLeadingParameterType = (before: string): string | undefined => {
 const leadingTypeOf = (tokens: readonly Token[]): string | undefined => {
   const first = tokens.findIndex((token) => token.kind !== "Comment");
   if (first < 0) return undefined;
-  const token = tokens[first];
-  if (!token) return undefined;
-  if (token.kind === "LocalIdentifier") {
-    return token.value + pointerSuffix(tokens.slice(first + 1));
-  }
-  if (token.kind !== "Type") return undefined;
-  if (token.value !== "ptr") return token.value;
-  const rest = tokens.slice(first + 1);
-  if (
-    rest[0]?.kind === "Keyword" &&
-    rest[0].value === "addrspace" &&
-    rest[1]?.value === "(" &&
-    rest[2]?.kind === "Number" &&
-    rest[3]?.value === ")"
-  ) {
-    return `ptr addrspace(${rest[2].value})`;
-  }
-  return "ptr";
+  return leadingTypeTextFromTokens(tokens.slice(first));
 };
 
-/** typed pointer 互換記法の `*` 連続分を名前付き型へ付ける。 */
-const pointerSuffix = (tokens: readonly Token[]): string => {
-  let suffix = "";
-  for (const token of tokens) {
-    if (token.value !== "*") break;
-    suffix += "*";
+/** 文字列断片の先頭から、型パーサが読める型だけを取り出す。 */
+const leadingTypeText = (source: string): string | undefined =>
+  leadingTypeTextFromTokens(
+    tokenize(source).filter((token) => token.kind !== "Eof" && token.kind !== "Comment"),
+  );
+
+/** トークン列の先頭から、型パーサが読める型だけを取り出す。 */
+const leadingTypeTextFromTokens = (tokens: readonly Token[]): string | undefined => {
+  const candidates = candidateTypeTexts(tokens);
+  for (let length = candidates.length; length > 0; length -= 1) {
+    const source = candidates.slice(0, length).join(" ");
+    const parsed = parseLlvmType(source);
+    const formatted = formatLlvmType(parsed.type);
+    if (formatted && parsed.diagnostics.length === 0) return formatted;
   }
-  return suffix;
+  return undefined;
+};
+
+/** 識別子直前の文字列断片末尾から、型パーサが読める型だけを取り出す。 */
+const trailingTypeText = (source: string): string | undefined => {
+  const tokens = tokenize(source).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  const candidates = candidateTypeTexts(tokens);
+  for (let start = Math.max(0, candidates.length - 8); start < candidates.length; start += 1) {
+    const parsed = parseLlvmType(candidates.slice(start).join(" "));
+    const formatted = formatLlvmType(parsed.type);
+    if (formatted && parsed.diagnostics.length === 0) return formatted;
+  }
+  return undefined;
+};
+
+/** 型候補のトークン値列。アライメントなど型でない後続属性に当たったら止める。 */
+const candidateTypeTexts = (tokens: readonly Token[]): string[] => {
+  const values: string[] = [];
+  let square = 0;
+  let paren = 0;
+  let brace = 0;
+  let angle = 0;
+  for (const token of tokens) {
+    if (token.value === "," && square === 0 && paren === 0 && brace === 0 && angle === 0) break;
+    if (token.kind === "GlobalIdentifier" || token.kind === "AttributeGroup") break;
+    if (
+      values.length > 0 &&
+      square === 0 &&
+      paren === 0 &&
+      brace === 0 &&
+      angle === 0 &&
+      token.kind === "LocalIdentifier"
+    ) {
+      break;
+    }
+    values.push(token.value);
+    if (token.value === "[") square += 1;
+    else if (token.value === "]") square = Math.max(0, square - 1);
+    else if (token.value === "(") paren += 1;
+    else if (token.value === ")") paren = Math.max(0, paren - 1);
+    else if (token.value === "{") brace += 1;
+    else if (token.value === "}") brace = Math.max(0, brace - 1);
+    else if (token.value === "<") angle += 1;
+    else if (token.value === ">") angle = Math.max(0, angle - 1);
+  }
+  return values;
+};
+
+/** 型構文内の区切りを値・引数の区切りと誤認しないための深さ更新。 */
+const updateTypeDepth = (depth: number, value: string): number => {
+  if (value === "{" || value === "[" || value === "<") return depth + 1;
+  if (value === "}" || value === "]" || value === ">") return Math.max(0, depth - 1);
+  return depth;
+};
+
+/** 単語境界を見てキーワードの位置を探す。 */
+const indexOfWord = (source: string, word: string): number => {
+  const match = new RegExp(String.raw`(?:^|\s)${escapeRegExp(word)}(?:\s|$)`, "u").exec(source);
+  return match ? match.index + match[0].indexOf(word) : -1;
 };
 
 /**

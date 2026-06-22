@@ -6,6 +6,7 @@ LLVM IR (`.ll`) 向けの VSCode 拡張機能。
 
 - TextMate 文法によるシンタックスハイライト。
 - Language Server による hover / definition / references / documentSymbol / semanticTokens / diagnostics / completion / rename / foldingRange。
+- scalar / pointer / vector / array / struct / function type / named type / opaque struct の軽量型解析に基づく型表示。
 - PATH 上の `llvm-as` を使った任意の外部 verifier 診断。
 
 ## 設定

@@ -32,9 +32,13 @@ parser/analyzer は `vscode*` に一切依存しない。
     バーワード（記号なしの語）は lexer 内で既知の語集合により種別まで分類する（未分類は `Identifier`）。
 - **ast**: ノード型定義（Module / TypeDefinition / GlobalVariable / ComdatDefinition / ModuleAsm / UseListOrderDirective / FunctionDefinition / FunctionDeclaration / BasicBlock / Instruction / DebugRecord / IdentifierRef / MetadataDefinition…）。各ノードに `range`。
 - **parser**: 再帰下降パーサ。**エラー回復付き**（1行の失敗で全体を止めず `UnknownEntry`＋診断で継続）で構文エラーを診断として収集。
-  - **粒度は「構造重視・命令は粗く」**: トップレベル構造は型付きノードへ分解するが、命令・型の内部は構造化せず、出現する識別子参照（`@`/`%`/`!`/`#`/`$`・ラベル）を {@link IdentifierRef} として収集するにとどめる。定義/参照位置が取れれば LSP の definition/references/documentSymbol/foldingRange が成立する。型の構造化・各オペコード専用ノードは将来フェーズ。
+  - **粒度は「構造重視・命令は粗く」**: トップレベル構造は型付きノードへ分解するが、命令内部は構造化せず、出現する識別子参照（`@`/`%`/`!`/`#`/`$`・ラベル）を {@link IdentifierRef} として収集するにとどめる。定義/参照位置が取れれば LSP の definition/references/documentSymbol/foldingRange が成立する。型構文は専用の type パーサで段階的に扱い、各オペコード専用ノードは将来フェーズとする。
   - **走査方針**: `define` 本体は `{`...`}` のブレース対応でブロックを切り出す。関数本体の命令・debug record・use-list order directive と、その他のトップレベルは通常 1 行 1 文として扱うが、`[]` / `{}` / `()` や改行を含む文字列で複数行にまたがる場合は閉じるまで 1 要素として集める。
   - 各トップレベルエントリは共通で `defines?`（導入する名前）と `references`（本体の参照列）を持ち、analyzer のシンボル表/定義参照インデックスの直接の入力になる。
+- **type**: LLVM IR 型構文を AST 化する純粋パーサ。
+  - 公開API: `parseLlvmType(source: string): { type?: LlvmType; diagnostics: ParseDiagnostic[] }`、`formatLlvmType(type): string | undefined`。
+  - 対象: scalar / pointer / vector / array / struct / function type / named type / opaque struct。`ptr addrspace(N)`、typed pointer、可変長引数、packed struct を扱う。
+  - 役割は構文構造の取得に限定し、target datalayout に依存するサイズ計算や verifier 相当の型整合性検証は行わない。
 - 公開API例: `parseModule(source: string): { ast: Module; diagnostics: ParseDiagnostic[] }`
 
 ### analyzer（純粋）
@@ -43,8 +47,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   - モジュールスコープ: `@global`、名前付き型 `%struct.Foo`、名前付きメタデータ、属性グループ。
   - 関数スコープ: ローカルSSA値 `%x`（パラメータ含む）、ラベル。
 - **定義/参照インデックス**: 各シンボルの定義位置と全参照位置（Go to Definition / Find References / Rename の土台）。
-- **型解決**: SSA値の型（Hover表示用）。parser の AST は命令内部を粗く保持するため、`analyze(ast, { source })` で元ソースを渡された場合に、関数引数と命令結果の直近型トークンから安全に推定する。
-- **型構文モデル（予定）**: LLVM IR の型構文を parser の純粋層で AST 化し、analyzer はその型 AST を参照して hover / completion / inlay hints / diagnostics の表示品質を上げる。対象は scalar / pointer / vector / array / struct / function type / named type / opaque struct から始め、target datalayout に依存するサイズ計算や verifier 相当の型検査は扱わない。
+- **型解決**: SSA値の型（Hover表示用）。parser の AST は命令内部を粗く保持するため、`analyze(ast, { source })` で元ソースを渡された場合に、関数引数と命令結果の直近型構文を `parseLlvmType` で読み、表示用文字列として安全に推定する。target datalayout に依存するサイズ計算や verifier 相当の型検査は扱わない。
 - **診断**: 未定義値の参照、重複定義、同一命令内の自己参照、終端命令後の通常命令など（LLVM verifier 全体は再実装しない）。metadata attachment key、関数宣言の引数名、関数スコープの use-list order directive など、LangRef 上の非参照・非命令は誤診断しない。language-server で parser の構文診断とマージする。
 - **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
 - **CFG / 呼び出し情報（予定）**: 関数単位で basic block successor と直接呼び出し先を抽出する。`br` / `switch` / `invoke` / `callbr` など静的に分かる範囲を対象にし、間接分岐や関数ポインタの完全解決は行わない。

@@ -204,7 +204,11 @@ export const parseModule = (source: string): ParseResult => {
   /** `define` の本体（`{`...`}`）を読み、シグネチャ・本体・終端位置を返す。 */
   const collectFunction = (start: number): { signature: Token[]; body: Token[]; next: number } => {
     let open = start;
-    while (open < tokens.length && tokens[open]?.kind !== "Eof" && tokens[open]?.value !== "{") {
+    let signatureDepth = 0;
+    while (open < tokens.length && tokens[open]?.kind !== "Eof") {
+      const value = tokens[open]?.value;
+      if (value === "{" && signatureDepth === 0) break;
+      signatureDepth = updateTypeDelimiterDepth(signatureDepth, value);
       open += 1;
     }
     const signature = tokens.slice(start, open);
@@ -367,6 +371,15 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
 const updateDelimiterDepth = (depth: number, value: string): number => {
   if (value === "{" || value === "[" || value === "(") return depth + 1;
   if (value === "}" || value === "]" || value === ")") return Math.max(0, depth - 1);
+  return depth;
+};
+
+/** 型構文を含む関数シグネチャ用に、山括弧も含めてネスト深さを更新する。 */
+const updateTypeDelimiterDepth = (depth: number, value: string | undefined): number => {
+  if (value === "{" || value === "[" || value === "(" || value === "<") return depth + 1;
+  if (value === "}" || value === "]" || value === ")" || value === ">") {
+    return Math.max(0, depth - 1);
+  }
   return depth;
 };
 

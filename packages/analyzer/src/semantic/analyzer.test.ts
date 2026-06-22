@@ -352,6 +352,36 @@ describe("analyze: 型解決と documentSymbol", () => {
     expect(model.symbolAt(posOf(source, "%addr"))?.type).toBe("i64");
   });
 
+  it("型 AST ベースで複合型の引数と命令結果型を推定する", () => {
+    const source = [
+      "%Point = type { i32, i32 }",
+      "define <4 x i32> @wide(%Point addrspace(2)* %p, [8 x ptr] %items) {",
+      "entry:",
+      "  %loaded = load <4 x i32>, ptr %vec",
+      "  ret <4 x i32> %loaded",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.symbolAt(posOf(source, "%p"))?.type).toBe("%Point addrspace(2)*");
+    expect(model.symbolAt(posOf(source, "%items"))?.type).toBe("[8 x ptr]");
+    expect(model.symbolAt(posOf(source, "%loaded"))?.type).toBe("<4 x i32>");
+  });
+
+  it("inline struct と packed struct を含む関数シグネチャから引数型を推定する", () => {
+    const source = [
+      "define void @f({ i8, i16 } %s, <{ i8, ptr }> %p) {",
+      "entry:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.symbolAt(posOf(source, "%s"))?.type).toBe("{ i8, i16 }");
+    expect(model.symbolAt(posOf(source, "%p"))?.type).toBe("<{ i8, ptr }>");
+    expect(model.diagnostics()).toEqual([]);
+  });
+
   it("documentSymbols はトップレベルと関数子要素を返す", () => {
     const source = [
       "@g = global i32 0",

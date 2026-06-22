@@ -1,6 +1,25 @@
 export { tokenize } from "./lexer/index.ts";
 export type { Position, Range, Token, TokenKind } from "./lexer/index.ts";
 export { parseModule } from "./parser/index.ts";
+export { formatLlvmType, parseLlvmType } from "./type/index.ts";
+export type {
+  ArrayType,
+  ByteType,
+  FloatingPointType,
+  FunctionType,
+  IntegerType,
+  LabelType,
+  LlvmType,
+  LlvmTypeParseResult,
+  MetadataType,
+  NamedType,
+  OpaqueStructType,
+  PointerType,
+  StructType,
+  TokenType,
+  VectorType,
+  VoidType,
+} from "./type/index.ts";
 export type {
   AttributeGroupDefinition,
   BasicBlock,
