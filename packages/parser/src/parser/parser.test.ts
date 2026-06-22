@@ -29,6 +29,9 @@ const assertSliceInvariant = (source: string, ast: Module): void => {
           if (inst.result) refs.push(inst.result);
           refs.push(...inst.operands);
         }
+        for (const record of block.debugRecords ?? []) {
+          refs.push(...record.operands);
+        }
       }
     }
     for (const ref of refs) {
@@ -109,6 +112,15 @@ describe("parseModule: グローバル変数", () => {
       "]",
     ].join("\n");
     const { ast, diagnostics } = parseModule(src);
+    expect(ast.entries).toHaveLength(1);
+    expect(ast.entries[0]?.kind).toBe("GlobalVariable");
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("改行を含む文字列定数の後続トークンまで1つの GlobalVariable にする", () => {
+    const src = '@s = private constant [8 x i8] c"foo\\0A\nbar\\00", align 1';
+    const { ast, diagnostics } = parseModule(src);
+
     expect(ast.entries).toHaveLength(1);
     expect(ast.entries[0]?.kind).toBe("GlobalVariable");
     expect(diagnostics).toEqual([]);
@@ -208,11 +220,87 @@ describe("parseModule: 関数定義", () => {
     ]);
   });
 
+  it("複数行 debug record を1つの本体要素として扱う", () => {
+    const fn = [
+      "define void @f(i32 %a, i32 %b) {",
+      "entry:",
+      "  #dbg_value(!DIArgList(i32 %a, i32 %b),",
+      "             !16,",
+      "             !DIExpression(DW_OP_LLVM_arg, 0, DW_OP_LLVM_arg, 1, DW_OP_plus),",
+      "             !26)",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+    expect(entry.blocks[0]?.instructions.map((instruction) => instruction.opcode)).toEqual(["ret"]);
+    expect(entry.blocks[0]?.debugRecords).toHaveLength(1);
+    expect(entry.blocks[0]?.debugRecords?.[0]?.operands.map((operand) => operand.name)).toEqual([
+      "%a",
+      "%b",
+      "!16",
+      "!26",
+    ]);
+  });
+
+  it("複数行 switch を1つの終端命令として扱う", () => {
+    const fn = [
+      "define void @f(i32 %x) {",
+      "entry:",
+      "  switch i32 %x, label %default [",
+      "    i32 0, label %zero",
+      "    i32 1, label %one",
+      "  ]",
+      "zero:",
+      "  ret void",
+      "one:",
+      "  ret void",
+      "default:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+    expect(entry.blocks[0]?.instructions).toHaveLength(1);
+    expect(entry.blocks[0]?.instructions[0]?.opcode).toBe("switch");
+    expect(
+      entry.blocks[0]?.instructions[0]?.operands
+        .filter((o) => o.kind === "LabelRef")
+        .map((o) => o.name),
+    ).toEqual(["%default", "%zero", "%one"]);
+  });
+
+  it("関数スコープの use-list order directive を命令にしない", () => {
+    const fn = [
+      "define void @f(i32 %x) {",
+      "entry:",
+      "  ret void",
+      "  uselistorder i32 %x, { 0 }",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+    expect(entry.blocks[0]?.instructions.map((instruction) => instruction.opcode)).toEqual(["ret"]);
+    expect(entry.blocks[0]?.directives?.map((directive) => directive.directive)).toEqual([
+      "uselistorder",
+    ]);
+  });
+
   it("数値ラベルで基本ブロックを分割する", () => {
     const fn = "define void @f() {\n0:\n  br label %1\n1:\n  ret void\n}";
     const entry = parseModule(fn).ast.entries[0];
     if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
     expect(entry.blocks.map((block) => block.label?.name)).toEqual(["0", "1"]);
+  });
+
+  it("引用符付きラベルで基本ブロックを分割する", () => {
+    const fn = 'define void @f() {\n"weird label":\n  br label %"weird label"\n}';
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+    expect(entry.blocks.map((block) => block.label?.name)).toEqual(['"weird label"']);
+    expect(entry.blocks[0]?.instructions[0]?.operands.map((operand) => operand.kind)).toEqual([
+      "LabelRef",
+    ]);
   });
 });
 

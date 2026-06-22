@@ -163,6 +163,40 @@ describe("tokenize: バーワードの分類", () => {
     }
   });
 
+  it("最新属性語と denormal FP 環境の構成語は Keyword", () => {
+    for (const w of [
+      "captures",
+      "address",
+      "address_is_null",
+      "provenance",
+      "read_provenance",
+      "writable",
+      "initializes",
+      "dead_on_unwind",
+      "dead_on_return",
+      "range",
+      "nofpclass",
+      "argmem",
+      "errnomem",
+      "read",
+      "write",
+      "readwrite",
+      "denormal_fpenv",
+      "ieee",
+      "preserve-sign",
+      "positive-zero",
+      "dynamic",
+      "sanitize_memtag",
+      "sanitize_realtime",
+      "vscale_range",
+      "nooutline",
+      "nocreateundeforpoison",
+      "nocf_check",
+    ]) {
+      expect(firstKind(w)).toBe("Keyword");
+    }
+  });
+
   it("命令オペコードは Opcode", () => {
     for (const w of ["add", "ret", "getelementptr", "icmp", "call", "ptrtoaddr"]) {
       expect(firstKind(w)).toBe("Opcode");
@@ -224,6 +258,14 @@ describe("tokenize: 数値", () => {
     ]);
   });
 
+  it("NaN payload と f0x 形式の浮動小数リテラル", () => {
+    expect(kinds("+nan(0x1) -snan(0x2) f0x3c00")).toEqual([
+      ["Number", "+nan(0x1)"],
+      ["Number", "-snan(0x2)"],
+      ["Number", "f0x3c00"],
+    ]);
+  });
+
   it("数字を伴わない符号は Unknown", () => {
     expect(firstKind("-")).toBe("Unknown");
   });
@@ -245,7 +287,7 @@ describe("tokenize: 文字列", () => {
 
 describe("tokenize: 記号と未知文字", () => {
   it("各記号は Punctuation", () => {
-    expect(kinds("= , { } ( ) [ ] < > * :")).toEqual([
+    expect(kinds("= , { } ( ) [ ] < > * : |")).toEqual([
       ["Punctuation", "="],
       ["Punctuation", ","],
       ["Punctuation", "{"],
@@ -258,6 +300,7 @@ describe("tokenize: 記号と未知文字", () => {
       ["Punctuation", ">"],
       ["Punctuation", "*"],
       ["Punctuation", ":"],
+      ["Punctuation", "|"],
     ]);
   });
 

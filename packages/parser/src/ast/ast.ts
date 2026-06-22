@@ -156,6 +156,8 @@ export interface BasicBlock extends NodeBase {
   readonly instructions: readonly Instruction[];
   /** 命令列へ混在する `#dbg_*` レコード。命令ではないため別に保持する。 */
   readonly debugRecords?: readonly DebugRecord[];
+  /** 関数スコープに現れる use-list order directive。命令ではないため別に保持する。 */
+  readonly directives?: readonly UseListOrderDirective[];
 }
 
 /**

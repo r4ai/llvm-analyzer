@@ -4,7 +4,7 @@ LLVM IR (`.ll`) 向けの LSP 機能を提供する VSCode 拡張機能。
 
 現在はシンタックスハイライトに加えて、LSP 経由の hover / definition / references / documentSymbol / semanticTokens / diagnostics / completion / rename / foldingRange を提供する。
 解析ロジックは純粋ドメイン層の parser / analyzer として分離している。
-最新 LLVM LangRef に追従し、`ptrtoaddr`、byte type `bN`、debug record、comdat、use-list order、複数行グローバル初期化子などを構造解析する。
+最新 LLVM LangRef に追従し、`ptrtoaddr`、byte type `bN`、debug record、comdat、use-list order、複数行グローバル初期化子、`ptr addrspace(N)` 引数、PHI / `blockaddress` のラベル参照などを構造解析する。
 診断は LSP 用の軽量な名前解決と最小限の well-formedness に絞り、LLVM verifier 全体の再実装はしない。
 
 - 全体設計: [docs/design.md](docs/design.md)

@@ -8,6 +8,7 @@
  * 依存方向を保つため、このファイルは VSCode API や LSP 型へ依存しない。
  * LSP 固有の型変換は language-server パッケージで行う。
  */
+import { tokenize } from "@llvm-analyzer/parser";
 import type {
   BasicBlock,
   FunctionDefinition,
@@ -16,6 +17,7 @@ import type {
   Module,
   Position,
   Range,
+  Token,
   TopLevelEntry,
 } from "@llvm-analyzer/parser";
 import type {
@@ -228,25 +230,60 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     validateFunctionBody(entry, diagnostics);
   }
 
+  const resolveContextual = (ref: IdentifierRef): MutableSymbol | undefined =>
+    resolveContextualRef(options.source, ref, moduleScope, functionScopes);
+
   for (const entry of ast.entries) {
     if (entry.kind !== "FunctionDefinition") {
       resolveRefs(
-        resolvableTopLevelRefs(entry, moduleScope),
+        resolvableTopLevelRefs(entry, moduleScope, options.source),
         moduleScope,
         undefined,
         addReference,
         addUndefined,
+        resolveContextual,
       );
       continue;
     }
     const functionScope = functionScopes.get(entry.defines.name);
-    resolveRefs(entry.references, moduleScope, functionScope, addReference, addUndefined);
+    resolveRefs(
+      entry.references,
+      moduleScope,
+      functionScope,
+      addReference,
+      addUndefined,
+      resolveContextual,
+    );
     for (const block of entry.blocks) {
       for (const instruction of block.instructions) {
-        resolveRefs(instruction.operands, moduleScope, functionScope, addReference, addUndefined);
+        resolveRefs(
+          instruction.operands,
+          moduleScope,
+          functionScope,
+          addReference,
+          addUndefined,
+          resolveContextual,
+        );
       }
       for (const debugRecord of block.debugRecords ?? []) {
-        resolveRefs(debugRecord.operands, moduleScope, functionScope, addReference, addUndefined);
+        resolveRefs(
+          debugRecord.operands,
+          moduleScope,
+          functionScope,
+          addReference,
+          addUndefined,
+          resolveContextual,
+        );
+      }
+      for (const directive of block.directives ?? []) {
+        resolveRefs(
+          directive.references,
+          moduleScope,
+          functionScope,
+          addReference,
+          addUndefined,
+          resolveContextual,
+        );
       }
     }
   }
@@ -306,7 +343,15 @@ const isFunctionParameterRef = (source: string | undefined, ref: IdentifierRef):
 const resolvableTopLevelRefs = (
   entry: TopLevelEntry,
   moduleScope: Scope,
+  source: string | undefined,
 ): readonly IdentifierRef[] => {
+  if (entry.kind === "FunctionDeclaration") {
+    return entry.references.filter((ref) => {
+      if (ref.kind !== "LocalRef") return true;
+      if (moduleScope.symbols.has(ref.name)) return true;
+      return !isFunctionParameterRef(source, ref);
+    });
+  }
   if (entry.kind !== "UseListOrderDirective") return entry.references;
   return entry.references.filter((ref) => {
     if (ref.kind !== "LocalRef" && ref.kind !== "LabelRef") return true;
@@ -403,9 +448,10 @@ const resolveRefs = (
   functionScope: Scope | undefined,
   addReference: (symbol: MutableSymbol, ref: IdentifierRef) => void,
   addUndefined: (ref: IdentifierRef) => void,
+  resolveSpecial?: (ref: IdentifierRef) => MutableSymbol | undefined,
 ): void => {
   for (const ref of refs) {
-    const symbol = resolveRef(ref, moduleScope, functionScope);
+    const symbol = resolveSpecial?.(ref) ?? resolveRef(ref, moduleScope, functionScope);
     if (symbol) addReference(symbol, ref);
     else addUndefined(ref);
   }
@@ -445,6 +491,69 @@ const labelNameOf = (ref: IdentifierRef): string =>
   ref.name.startsWith("%") ? ref.name.slice(1) : ref.name;
 
 /**
+ * 通常のスコープ探索より優先すべき構文位置依存の参照を解決する。
+ */
+const resolveContextualRef = (
+  source: string | undefined,
+  ref: IdentifierRef,
+  moduleScope: Scope,
+  functionScopes: ReadonlyMap<string, Scope>,
+): MutableSymbol | undefined =>
+  resolveTypePositionRef(source, ref, moduleScope) ??
+  resolveBlockAddressRef(source, ref, functionScopes);
+
+/** 型位置の `%T` は、同名のローカル値よりモジュールスコープの名前付き型を優先する。 */
+const resolveTypePositionRef = (
+  source: string | undefined,
+  ref: IdentifierRef,
+  moduleScope: Scope,
+): MutableSymbol | undefined => {
+  if (!isTypePositionRef(source, ref)) return undefined;
+  const symbol = moduleScope.symbols.get(ref.name);
+  return symbol?.kind === "type" ? symbol : undefined;
+};
+
+/** 粗いトークン文脈から、ローカル識別子が型名として現れているかを判定する。 */
+const isTypePositionRef = (source: string | undefined, ref: IdentifierRef): boolean => {
+  if (!source || ref.kind !== "LocalRef") return false;
+  const after = source.slice(ref.range.end.offset).trimStart();
+  if (after.startsWith("%") || after.startsWith("@")) return true;
+  if (after.startsWith("*")) {
+    const afterPointer = after.slice(1).trimStart();
+    if (afterPointer.startsWith("%") || afterPointer.startsWith("@")) return true;
+  }
+  const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
+  const beforeTokens = tokenize(source.slice(lineStart, ref.range.start.offset)).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  const previous = beforeTokens.at(-1);
+  return (
+    previous?.kind === "Opcode" ||
+    (previous?.kind === "Keyword" && (previous.value === "to" || previous.value === "type"))
+  );
+};
+
+/**
+ * `blockaddress(@f, %bb)` の `%bb` を、明示された関数のラベルスコープで解決する。
+ */
+const resolveBlockAddressRef = (
+  source: string | undefined,
+  ref: IdentifierRef,
+  functionScopes: ReadonlyMap<string, Scope>,
+): MutableSymbol | undefined => {
+  if (!source || ref.kind !== "LabelRef") return undefined;
+  const blockAddressStart = source.lastIndexOf("blockaddress", ref.range.start.offset);
+  if (blockAddressStart < 0) return undefined;
+  const tokens = tokenize(source.slice(blockAddressStart, ref.range.start.offset)).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  if (tokens[0]?.value !== "blockaddress") return undefined;
+  const functionName = tokens.findLast((token) => token.kind === "GlobalIdentifier")?.value;
+  if (!functionName) return undefined;
+  return functionScopes.get(functionName)?.symbols.get(labelNameOf(ref));
+};
+
+/**
  * 命令結果の型を推定する。
  *
  * @param source `parseModule` に渡したものと同じ元ソース。
@@ -460,6 +569,8 @@ const inferInstructionResultType = (
   instruction: Instruction,
 ): string | undefined => {
   if (!source || !instruction.opcode) return undefined;
+  if (instruction.opcode === "alloca" || instruction.opcode === "getelementptr") return "ptr";
+  if (instruction.opcode === "icmp" || instruction.opcode === "fcmp") return "i1";
   const line = source.slice(instruction.range.start.offset, instruction.range.end.offset);
   const opcodeMatch = new RegExp(`(?:^|[\\s=])${escapeRegExp(instruction.opcode)}\\b`, "u").exec(
     line,
@@ -487,7 +598,73 @@ const inferTypeBefore = (source: string | undefined, ref: IdentifierRef): string
   if (!source) return undefined;
   const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
   const before = source.slice(lineStart, ref.range.start.offset);
-  return before.match(TYPE_PATTERN)?.[1];
+  return inferLeadingParameterType(before) ?? before.match(TYPE_PATTERN)?.[1];
+};
+
+/**
+ * 関数引数の先頭型を、現在の引数セグメントから推定する。
+ *
+ * @param before 行頭から識別子直前までのソース断片。
+ * @returns `ptr addrspace(1)` や `%T` などの先頭型。推定できなければ undefined。
+ *
+ * @remarks
+ * `ptr addrspace(N) %p` では識別子直前の最後のトークンが `)` になるため、単純な「直前トークン」では
+ * 型を取れない。ここでは関数呼び出し/宣言の括弧深さを見て、現在の引数セグメント先頭を読む。
+ */
+const inferLeadingParameterType = (before: string): string | undefined => {
+  const tokens = tokenize(before).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  let depth = 0;
+  let segmentStart = 0;
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (!token) continue;
+    if (token.value === "(") {
+      depth += 1;
+      if (depth === 1) segmentStart = i + 1;
+    } else if (token.value === ")") {
+      depth = Math.max(0, depth - 1);
+    } else if (token.value === "," && depth === 1) {
+      segmentStart = i + 1;
+    }
+  }
+  const segment = tokens.slice(segmentStart);
+  return leadingTypeOf(segment);
+};
+
+/** 引数セグメントの先頭から、この analyzer が安全に扱える型だけを取り出す。 */
+const leadingTypeOf = (tokens: readonly Token[]): string | undefined => {
+  const first = tokens.findIndex((token) => token.kind !== "Comment");
+  if (first < 0) return undefined;
+  const token = tokens[first];
+  if (!token) return undefined;
+  if (token.kind === "LocalIdentifier") {
+    return token.value + pointerSuffix(tokens.slice(first + 1));
+  }
+  if (token.kind !== "Type") return undefined;
+  if (token.value !== "ptr") return token.value;
+  const rest = tokens.slice(first + 1);
+  if (
+    rest[0]?.kind === "Keyword" &&
+    rest[0].value === "addrspace" &&
+    rest[1]?.value === "(" &&
+    rest[2]?.kind === "Number" &&
+    rest[3]?.value === ")"
+  ) {
+    return `ptr addrspace(${rest[2].value})`;
+  }
+  return "ptr";
+};
+
+/** typed pointer 互換記法の `*` 連続分を名前付き型へ付ける。 */
+const pointerSuffix = (tokens: readonly Token[]): string => {
+  let suffix = "";
+  for (const token of tokens) {
+    if (token.value !== "*") break;
+    suffix += "*";
+  }
+  return suffix;
 };
 
 /**

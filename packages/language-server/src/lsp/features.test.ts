@@ -80,7 +80,9 @@ describe("LSP 機能アダプタ", () => {
   it("completion は最新 LangRef の代表的な命令と型を返す", () => {
     const items = getCompletionItems(snapshot, { line: 4, character: 8 });
 
-    expect(items.map((item) => item.label)).toEqual(expect.arrayContaining(["ptrtoaddr", "b32"]));
+    expect(items.map((item) => item.label)).toEqual(
+      expect.arrayContaining(["ptrtoaddr", "captures", "memory", "nofpclass", "b32"]),
+    );
   });
 
   it("rename は同一シンボルの全出現だけを書き換える", () => {

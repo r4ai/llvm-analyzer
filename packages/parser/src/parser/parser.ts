@@ -17,6 +17,7 @@ import type {
   ParseDiagnostic,
   ParseResult,
   TopLevelEntry,
+  UseListOrderDirective,
 } from "../ast/index.ts";
 
 /** 識別子トークンの種別集合（参照として収集する対象）。 */
@@ -47,12 +48,17 @@ const spanOf = (start: Token, end: Token): Range => ({
  * 識別子トークンを参照ノードへ変換する。
  * `label %x` の `%x` のように直前が型キーワード `label` の場合は {@link IdentifierRef} を `LabelRef` とする。
  */
-const makeRef = (token: Token, prev: Token | undefined): IdentifierRef => {
+const makeRef = (
+  token: Token,
+  prev: Token | undefined,
+  forcedKind?: IdentifierRef["kind"],
+): IdentifierRef => {
   const base = REF_KIND[token.kind] ?? "LocalRef";
   const kind =
-    token.kind === "LocalIdentifier" && prev?.kind === "Type" && prev.value === "label"
+    forcedKind ??
+    (token.kind === "LocalIdentifier" && prev?.kind === "Type" && prev.value === "label"
       ? "LabelRef"
-      : base;
+      : base);
   return { kind, name: token.value, range: token.range };
 };
 
@@ -65,10 +71,64 @@ const collectRefs = (tokens: readonly Token[], excludeIndex = -1): IdentifierRef
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i];
     if (i === excludeIndex || token === undefined) continue;
-    if (IDENTIFIER_KINDS.has(token.kind)) refs.push(makeRef(token, tokens[i - 1]));
+    if (isInlineMetadataConstructor(tokens, i)) continue;
+    if (isMetadataAttachmentKey(tokens, i)) continue;
+    if (IDENTIFIER_KINDS.has(token.kind)) {
+      refs.push(makeRef(token, tokens[i - 1], contextualRefKind(tokens, i)));
+    }
   }
   return refs;
 };
+
+/**
+ * `!DIExpression(...)` のような inline メタデータノードは、参照先 ID ではなく構文要素として扱う。
+ */
+const isInlineMetadataConstructor = (tokens: readonly Token[], index: number): boolean =>
+  tokens[index]?.kind === "MetadataIdentifier" && tokens[index + 1]?.value === "(";
+
+/** `!dbg !0` などの attachment key は定義参照ではなく、直後のメタデータだけを参照として扱う。 */
+const isMetadataAttachmentKey = (tokens: readonly Token[], index: number): boolean =>
+  tokens[index]?.kind === "MetadataIdentifier" &&
+  tokens[index - 1]?.value === "," &&
+  (tokens[index + 1]?.kind === "MetadataIdentifier" || tokens[index + 1]?.value === "!");
+
+/** 周辺構文から参照種別を補正する。 */
+const contextualRefKind = (
+  tokens: readonly Token[],
+  index: number,
+): IdentifierRef["kind"] | undefined => {
+  if (isPhiIncomingLabel(tokens, index) || isBlockAddressLabel(tokens, index)) return "LabelRef";
+  return undefined;
+};
+
+/** `phi ... [ value, %label ]` の incoming label を検出する。 */
+const isPhiIncomingLabel = (tokens: readonly Token[], index: number): boolean =>
+  tokens[index]?.kind === "LocalIdentifier" &&
+  tokens[index - 1]?.value === "," &&
+  tokens[index + 1]?.value === "]" &&
+  instructionOpcode(tokens) === "phi";
+
+/** `blockaddress(@f, %bb)` の第2引数ラベルを検出する。 */
+const isBlockAddressLabel = (tokens: readonly Token[], index: number): boolean => {
+  if (
+    tokens[index]?.kind !== "LocalIdentifier" ||
+    tokens[index - 1]?.value !== "," ||
+    tokens[index + 1]?.value !== ")"
+  ) {
+    return false;
+  }
+  for (let i = index - 2; i >= 0; i -= 1) {
+    const token = tokens[i];
+    if (!token) continue;
+    if (token.value === "(") return tokens[i - 1]?.value === "blockaddress";
+    if (token.value === ")" || token.value === "]" || token.value === "}") return false;
+  }
+  return false;
+};
+
+/** 命令行・本体要素内の最初の opcode。 */
+const instructionOpcode = (tokens: readonly Token[]): string | undefined =>
+  tokens.find((token) => token.kind === "Opcode")?.value;
 
 /** トークン列から、指定種別の最初のトークンとその位置を探す。 */
 const findToken = (
@@ -110,15 +170,16 @@ export const parseModule = (source: string): ParseResult => {
   const entries: TopLevelEntry[] = [];
   const diagnostics: ParseDiagnostic[] = [];
 
-  /** `start` から同一行のトークンを集め、次の開始位置を返す。 */
+  /** `start` から論理行のトークンを集め、次の開始位置を返す。 */
   const collectLine = (start: number): { line: Token[]; next: number } => {
-    const lineNo = tokens[start]?.range.start.line;
+    let lineEnd = tokens[start]?.range.start.line ?? 0;
     let end = start;
     while (
       end < tokens.length &&
       tokens[end]?.kind !== "Eof" &&
-      tokens[end]?.range.start.line === lineNo
+      (tokens[end]?.range.start.line ?? 0) <= lineEnd
     ) {
+      lineEnd = Math.max(lineEnd, tokens[end]?.range.end.line ?? lineEnd);
       end += 1;
     }
     return { line: tokens.slice(start, end), next: end };
@@ -212,6 +273,7 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
     label?: IdentifierRef;
     instructions: Instruction[];
     debugRecords: DebugRecord[];
+    directives: UseListOrderDirective[];
     first: Token;
     last: Token;
   };
@@ -224,6 +286,7 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
       ...(current.label ? { label: current.label } : {}),
       instructions: current.instructions,
       ...(current.debugRecords.length > 0 ? { debugRecords: current.debugRecords } : {}),
+      ...(current.directives.length > 0 ? { directives: current.directives } : {}),
       range: spanOf(current.first, current.last),
     });
     current = undefined;
@@ -233,31 +296,68 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
   while (i < body.length) {
     const head = body[i];
     if (head === undefined) break;
-    const { line, next } = collectLineIn(body, i);
-    const lineLast = body[next - 1] ?? head;
-    if (head.kind === "Label") {
+    if (head.kind === "Label" || (head.kind === "String" && body[i + 1]?.value === ":")) {
+      const { next } = collectLineIn(body, i);
+      const lineLast = body[next - 1] ?? head;
       flush();
       current = {
         label: { kind: "LabelRef", name: head.value, range: head.range },
         instructions: [],
         debugRecords: [],
+        directives: [],
         first: head,
         last: lineLast,
       };
+      i = next;
     } else if (head.kind === "DebugRecord") {
+      const { record, next } = collectDebugRecordIn(body, i);
+      const recordLast = body[next - 1] ?? head;
       if (current === undefined) {
-        current = { instructions: [], debugRecords: [], first: head, last: lineLast };
+        current = {
+          instructions: [],
+          debugRecords: [],
+          directives: [],
+          first: head,
+          last: recordLast,
+        };
       }
-      current.debugRecords.push(makeDebugRecord(line));
-      current.last = lineLast;
+      current.debugRecords.push(makeDebugRecord(record));
+      current.last = recordLast;
+      i = next;
+    } else if (
+      head.kind === "Keyword" &&
+      (head.value === "uselistorder" || head.value === "uselistorder_bb")
+    ) {
+      const { element, next } = collectDelimitedElementIn(body, i);
+      const elementLast = body[next - 1] ?? head;
+      if (current === undefined) {
+        current = {
+          instructions: [],
+          debugRecords: [],
+          directives: [],
+          first: head,
+          last: elementLast,
+        };
+      }
+      current.directives.push(makeUseListOrderDirective(element));
+      current.last = elementLast;
+      i = next;
     } else {
+      const { element, next } = collectDelimitedElementIn(body, i);
+      const elementLast = body[next - 1] ?? head;
       if (current === undefined) {
-        current = { instructions: [], debugRecords: [], first: head, last: lineLast };
+        current = {
+          instructions: [],
+          debugRecords: [],
+          directives: [],
+          first: head,
+          last: elementLast,
+        };
       }
-      current.instructions.push(makeInstruction(line));
-      current.last = lineLast;
+      current.instructions.push(makeInstruction(element));
+      current.last = elementLast;
+      i = next;
     }
-    i = next;
   }
   flush();
   return blocks;
@@ -270,15 +370,56 @@ const updateDelimiterDepth = (depth: number, value: string): number => {
   return depth;
 };
 
-/** `body` 内の `start` から同一行のトークンを集める（本体用の行分割）。 */
+/** `body` 内の `start` から論理行のトークンを集める（本体用の行分割）。 */
 const collectLineIn = (body: readonly Token[], start: number): { line: Token[]; next: number } => {
-  const lineNo = body[start]?.range.start.line;
+  let lineEnd = body[start]?.range.start.line ?? 0;
   let end = start;
-  while (end < body.length && body[end]?.range.start.line === lineNo) end += 1;
+  while (end < body.length && (body[end]?.range.start.line ?? 0) <= lineEnd) {
+    lineEnd = Math.max(lineEnd, body[end]?.range.end.line ?? lineEnd);
+    end += 1;
+  }
   return { line: body.slice(start, end), next: end };
 };
 
-/** 1 行分のトークンから命令ノードを作る（`line` は非空である前提）。 */
+/** `#dbg_*` record を括弧が閉じるまで複数行にまたがって集める。 */
+const collectDebugRecordIn = (
+  body: readonly Token[],
+  start: number,
+): { record: Token[]; next: number } => {
+  const record: Token[] = [];
+  let next = start;
+  let depth = 0;
+  do {
+    const collected = collectLineIn(body, next);
+    record.push(...collected.line);
+    for (const token of collected.line) {
+      depth = updateDelimiterDepth(depth, token.value);
+    }
+    next = collected.next;
+  } while (next < body.length && depth > 0);
+  return { record, next };
+};
+
+/** 命令や directive を括弧が閉じるまで複数行にまたがって集める。 */
+const collectDelimitedElementIn = (
+  body: readonly Token[],
+  start: number,
+): { element: Token[]; next: number } => {
+  const element: Token[] = [];
+  let next = start;
+  let depth = 0;
+  do {
+    const collected = collectLineIn(body, next);
+    element.push(...collected.line);
+    for (const token of collected.line) {
+      depth = updateDelimiterDepth(depth, token.value);
+    }
+    next = collected.next;
+  } while (next < body.length && depth > 0);
+  return { element, next };
+};
+
+/** 1 要素分のトークンから命令ノードを作る（`line` は非空である前提）。 */
 const makeInstruction = (line: readonly Token[]): Instruction => {
   const first = line[0] as Token;
   const last = line[line.length - 1] ?? first;
@@ -298,7 +439,7 @@ const makeInstruction = (line: readonly Token[]): Instruction => {
   };
 };
 
-/** 1 行分のトークンから debug record ノードを作る。 */
+/** 1 要素分のトークンから debug record ノードを作る。 */
 const makeDebugRecord = (line: readonly Token[]): DebugRecord => {
   const first = line[0] as Token;
   const last = line[line.length - 1] ?? first;
@@ -306,6 +447,18 @@ const makeDebugRecord = (line: readonly Token[]): DebugRecord => {
     kind: "DebugRecord",
     name: first.value,
     operands: collectRefs(line),
+    range: spanOf(first, last),
+  };
+};
+
+/** 関数本体に現れた use-list order directive を作る。 */
+const makeUseListOrderDirective = (line: readonly Token[]): UseListOrderDirective => {
+  const first = line[0] as Token;
+  const last = line[line.length - 1] ?? first;
+  return {
+    kind: "UseListOrderDirective",
+    directive: first.value === "uselistorder_bb" ? "uselistorder_bb" : "uselistorder",
+    references: collectRefs(line),
     range: spanOf(first, last),
   };
 };

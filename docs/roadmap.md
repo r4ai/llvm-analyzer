@@ -31,6 +31,10 @@
   - `ptrtoaddr`、byte type `bN`、`/* ... */` コメント、拡張数値リテラル、数値ラベル、debug record `#dbg_*` を lexer/parser に追加
   - `module asm`、comdat 定義、use-list order、複数行トップレベルエントリを AST 化
   - 名前付き型 `%T` と関数引数 `%x` の誤認を抑止し、同一命令自己参照・終端後命令の最小 well-formedness 診断を追加
+- [x] **LangRef 追従監査フォローアップ**（2026-06-22）
+  - `+nan(0x...)` / `+snan(0x...)` / `f0x...` 数値、最新属性語、`|` 記号、quoted label を lexer/parser/TextMate へ追加
+  - 複数行 debug record / switch、改行を含む文字列、関数スコープ use-list order directive を 1 要素として扱う
+  - `ptr addrspace(N)` 引数、PHI incoming label、`blockaddress`、metadata attachment key、関数宣言引数名、`alloca` / `getelementptr` / `icmp` の軽量型推定を修正
 
 ## メモ
 

@@ -42,7 +42,7 @@
       ]
     },
     "label": {
-      "match": "^[ \\t]*([-a-zA-Z$._0-9]+)[ \\t]*:(?!:)",
+      "match": "^[ \\t]*((?:[-a-zA-Z$._0-9]+)|(?:\"[^\"]*\"))[ \\t]*:(?!:)",
       "captures": {
         "1": { "name": "entity.name.label.llvm" }
       }
@@ -94,7 +94,7 @@
           "name": "keyword.other.llvm"
         },
         {
-          "match": "\\b(private|internal|available_externally|linkonce|linkonce_odr|weak|weak_odr|common|appending|extern_weak|external|dllimport|dllexport|default|hidden|protected|dso_local|dso_preemptable|unnamed_addr|local_unnamed_addr|thread_local|localdynamic|initialexec|localexec|generaldynamic|zeroext|signext|inreg|byval|byref|preallocated|inalloca|sret|elementtype|noalias|nocapture|nofree|nest|returned|nonnull|dereferenceable|dereferenceable_or_null|swiftself|swiftasync|swifterror|immarg|noundef|allocalign|allocptr|readnone|readonly|writeonly|nounwind|noreturn|willreturn|cold|hot|noinline|alwaysinline|inlinehint|optnone|optsize|minsize|mustprogress|nosync|nocallback|norecurse|uwtable|ssp|sspreq|sspstrong|safestack|shadowcallstack|nobuiltin|builtin|convergent|noimplicitfloat|naked|jumptable|speculatable|sanitize_address|sanitize_thread|sanitize_memory|sanitize_hwaddress|nonlazybind|returns_twice|argmemonly|inaccessiblememonly|inaccessiblemem_or_argmemonly|memory|allockind|allocsize|frame_pointer|null_pointer_is_valid|strictfp)\\b",
+          "match": "\\b(private|internal|available_externally|linkonce|linkonce_odr|weak|weak_odr|common|appending|extern_weak|external|dllimport|dllexport|default|hidden|protected|dso_local|dso_preemptable|unnamed_addr|local_unnamed_addr|thread_local|localdynamic|initialexec|localexec|generaldynamic|zeroext|signext|inreg|byval|byref|preallocated|inalloca|sret|elementtype|noalias|nocapture|captures|address|address_is_null|provenance|read_provenance|nofree|nest|returned|nonnull|dereferenceable|dereferenceable_or_null|writable|initializes|dead_on_unwind|dead_on_return|range|nofpclass|swiftself|swiftasync|swifterror|immarg|noundef|allocalign|allocptr|readnone|readonly|writeonly|nounwind|noreturn|willreturn|cold|hot|noinline|alwaysinline|inlinehint|optnone|optsize|minsize|mustprogress|nosync|nocallback|norecurse|uwtable|ssp|sspreq|sspstrong|safestack|shadowcallstack|nobuiltin|builtin|convergent|noimplicitfloat|naked|jumptable|speculatable|sanitize_address|sanitize_thread|sanitize_memory|sanitize_hwaddress|sanitize_memtag|sanitize_realtime|nonlazybind|returns_twice|argmemonly|inaccessiblememonly|inaccessiblemem_or_argmemonly|memory|argmem|errnomem|read|write|readwrite|allockind|allocsize|frame_pointer|null_pointer_is_valid|strictfp|denormal_fpenv|ieee|preserve-sign|positive-zero|dynamic|vscale_range|nooutline|nocreateundeforpoison|nocf_check)\\b",
           "name": "storage.modifier.llvm"
         },
         {
@@ -140,6 +140,14 @@
         {
           "match": "[-+]?0[xX](?:[0-9A-Fa-f]+\\.[0-9A-Fa-f]*|\\.[0-9A-Fa-f]+|[0-9A-Fa-f]+)[pP][-+]?[0-9]+",
           "name": "constant.numeric.hex.float.llvm"
+        },
+        {
+          "match": "\\b[fF]0[xX][0-9A-Fa-f]+\\b",
+          "name": "constant.numeric.hex.float.llvm"
+        },
+        {
+          "match": "[-+]?(?:nan|qnan|snan)\\(0[xX][0-9A-Fa-f]+\\)",
+          "name": "constant.numeric.float.special.llvm"
         },
         {
           "match": "[-+]?(?:inf|nan|qnan|snan)\\b",

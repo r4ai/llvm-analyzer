@@ -85,6 +85,25 @@ describe("analyze: シンボル表とスコープ", () => {
     ]);
     expect(model.diagnostics()).toEqual([]);
   });
+
+  it("アドレス空間付き ptr 型の関数引数を parameter として登録する", () => {
+    const source = [
+      "define void @use(ptr addrspace(1) %p) {",
+      "entry:",
+      "  %addr = ptrtoaddr ptr addrspace(1) %p to i32",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.symbols.map((s) => [s.name, s.kind, s.scopeName, s.type])).toEqual([
+      ["@use", "function", "module", undefined],
+      ["%p", "parameter", "@use", "ptr addrspace(1)"],
+      ["entry", "label", "@use", "label"],
+      ["%addr", "local", "@use", "i32"],
+    ]);
+    expect(model.diagnostics()).toEqual([]);
+  });
 });
 
 describe("analyze: 定義参照インデックス", () => {
@@ -132,6 +151,59 @@ describe("analyze: 定義参照インデックス", () => {
 
     expect(model.definitionAt(posOf(source, "%exit"))?.name).toBe("exit");
   });
+
+  it("phi の incoming label をラベル定義へリンクする", () => {
+    const source = [
+      "define i32 @f(i1 %cond) {",
+      "entry:",
+      "  br i1 %cond, label %left, label %right",
+      "left:",
+      "  br label %merge",
+      "right:",
+      "  br label %merge",
+      "merge:",
+      "  %v = phi i32 [ 1, %left ], [ 2, %right ]",
+      "  ret i32 %v",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%left", 1))?.name).toBe("left");
+    expect(model.definitionAt(posOf(source, "%right", 1))?.name).toBe("right");
+    expect(model.diagnostics()).toEqual([]);
+  });
+
+  it("blockaddress のブロック名を対象関数のラベル定義へリンクする", () => {
+    const source = [
+      "@addr = constant ptr blockaddress(@f, %target)",
+      "define void @f() {",
+      "entry:",
+      "  br label %target",
+      "target:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%target"))?.name).toBe("target");
+    expect(model.diagnostics()).toEqual([]);
+  });
+
+  it("型位置の名前付き型は同名ローカルより型定義を優先して解決する", () => {
+    const source = [
+      "%T = type { i32 }",
+      "define void @f(i32 %T) {",
+      "entry:",
+      "  %p = alloca %T",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%T", 2))?.kind).toBe("type");
+    expect(model.definitionAt(posOf(source, "%T", 1))?.kind).toBe("parameter");
+    expect(model.diagnostics()).toEqual([]);
+  });
 });
 
 describe("analyze: 診断", () => {
@@ -163,6 +235,25 @@ describe("analyze: 診断", () => {
       ["undefined-reference", "`@missing` が定義されていません"],
       ["undefined-reference", "`%absent` が定義されていません"],
     ]);
+  });
+
+  it("関数宣言の引数名を未定義参照として診断しない", () => {
+    const source = "declare void @f(i32 %x)";
+
+    expect(modelOf(source).diagnostics()).toEqual([]);
+  });
+
+  it("metadata attachment key を未定義参照として診断しない", () => {
+    const source = [
+      "define i32 @f(i32 %x) {",
+      "entry:",
+      "  %y = add i32 %x, 1, !dbg !0",
+      "  ret i32 %y",
+      "}",
+      "!0 = !{}",
+    ].join("\n");
+
+    expect(modelOf(source).diagnostics()).toEqual([]);
   });
 
   it("同一命令内の自己参照を well-formedness 診断にする", () => {
@@ -201,6 +292,18 @@ describe("analyze: 診断", () => {
       }),
     ]);
   });
+
+  it("関数スコープの use-list order directive を終端後命令として誤診断しない", () => {
+    const source = [
+      "define void @f(i32 %x) {",
+      "entry:",
+      "  ret void",
+      "  uselistorder i32 %x, { 0 }",
+      "}",
+    ].join("\n");
+
+    expect(modelOf(source).diagnostics()).toEqual([]);
+  });
 });
 
 describe("analyze: 型解決と documentSymbol", () => {
@@ -217,6 +320,23 @@ describe("analyze: 型解決と documentSymbol", () => {
 
     expect(model.symbolAt(posOf(source, "%loaded"))?.type).toBe("i32");
     expect(model.symbolAt(posOf(source, "%sum"))?.type).toBe("i32");
+  });
+
+  it("alloca/getelementptr/icmp の結果型を LangRef に沿って推定する", () => {
+    const source = [
+      "define i1 @f(i32 %x, ptr %base) {",
+      "entry:",
+      "  %slot = alloca i32",
+      "  %gep = getelementptr i32, ptr %base, i32 1",
+      "  %cmp = icmp eq i32 %x, 0",
+      "  ret i1 %cmp",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.symbolAt(posOf(source, "%slot"))?.type).toBe("ptr");
+    expect(model.symbolAt(posOf(source, "%gep"))?.type).toBe("ptr");
+    expect(model.symbolAt(posOf(source, "%cmp"))?.type).toBe("i1");
   });
 
   it("ptrtoaddr などの cast 系命令は to の後の型を結果型として推定する", () => {

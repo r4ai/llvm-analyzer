@@ -2,7 +2,7 @@ import { classifyBareword } from "./keywords.ts";
 import type { Position, Token, TokenKind } from "./token.ts";
 
 /** 単一文字の記号トークン。 */
-const PUNCTUATORS = new Set("=,{}()[]<>*:");
+const PUNCTUATORS = new Set("=,{}()[]<>*:|");
 
 /** 接頭辞付き識別子の名前に使える文字（`@name` の `name` 部分）。 */
 const NAME_CHAR = /[-A-Za-z$._0-9]/;
@@ -14,10 +14,14 @@ const BAREWORD_START = /[A-Za-z._]/;
 /** C 互換の 16 進浮動小数リテラル。 */
 const C_HEX_FLOAT =
   /[-+]?0[xX](?:(?:[0-9A-Fa-f]+\.[0-9A-Fa-f]*)|(?:\.[0-9A-Fa-f]+)|(?:[0-9A-Fa-f]+))[pP][-+]?\d+/y;
+/** `f0x...` 形式の正確な浮動小数ビット列リテラル。 */
+const PRECISE_FLOAT_BITS = /[fF]0[xX][0-9A-Fa-f]+/y;
 /** `s0x` / `u0x` 形式の整数リテラル。 */
 const SIGNED_HEX_INTEGER = /[su]0[xX][0-9A-Fa-f]+/y;
 /** `0x` 16進・特殊float リテラル。 */
 const HEX_NUMBER = /0[xX][KLMHR]?[0-9A-Fa-f]+/y;
+/** `+nan(0x1)` / `-snan(0x1)` などの NaN payload リテラル。 */
+const NAN_WITH_PAYLOAD = /[-+]?(?:nan|qnan|snan)\(0[xX][0-9A-Fa-f]+\)(?![-A-Za-z$._0-9])/y;
 /** `+inf` / `-qnan` などの特殊浮動小数リテラル。 */
 const SPECIAL_FLOAT = /[-+]?(?:inf|nan|qnan|snan)(?![-A-Za-z$._0-9])/y;
 /** 整数・浮動小数リテラル（符号・指数・先頭ドットを含む）。 */
@@ -93,7 +97,15 @@ export const tokenize = (source: string): Token[] => {
 
   /** `pos` から数値リテラルにマッチすればその終端、しなければ null。 */
   const matchNumber = (pos: number): number | null => {
-    for (const re of [C_HEX_FLOAT, SIGNED_HEX_INTEGER, HEX_NUMBER, SPECIAL_FLOAT, DEC_NUMBER]) {
+    for (const re of [
+      C_HEX_FLOAT,
+      PRECISE_FLOAT_BITS,
+      SIGNED_HEX_INTEGER,
+      HEX_NUMBER,
+      NAN_WITH_PAYLOAD,
+      SPECIAL_FLOAT,
+      DEC_NUMBER,
+    ]) {
       re.lastIndex = pos;
       const matched = re.exec(source);
       if (matched && matched.index === pos && matched[0].length > 0) {
@@ -202,6 +214,9 @@ export const tokenize = (source: string): Token[] => {
       ch === "+" ||
       ch === "-" ||
       ch === "." ||
+      ((ch === "f" || ch === "F") &&
+        source[pos + 1] === "0" &&
+        /[xX]/.test(source[pos + 2] ?? "")) ||
       ((ch === "s" || ch === "u") && source[pos + 1] === "0" && /[xX]/.test(source[pos + 2] ?? ""))
     ) {
       const end = matchNumber(pos);
