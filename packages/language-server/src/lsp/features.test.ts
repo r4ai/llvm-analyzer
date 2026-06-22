@@ -64,10 +64,6 @@ describe("LSP 機能アダプタ", () => {
     expect(hover?.contents).toEqual({
       kind: "markdown",
       value: [
-        "```llvm",
-        "%sum: i32",
-        "```",
-        "",
         "| Property | Value |",
         "| --- | --- |",
         "| Kind | `local` |",
@@ -88,10 +84,6 @@ describe("LSP 機能アダプタ", () => {
     expect(hover?.contents).toEqual({
       kind: "markdown",
       value: [
-        "```llvm",
-        "%x: i32",
-        "```",
-        "",
         "| Property | Value |",
         "| --- | --- |",
         "| Kind | `parameter` |",

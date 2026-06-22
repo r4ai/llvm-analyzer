@@ -554,15 +554,7 @@ const symbolOccurrenceAt = (
 };
 
 const symbolHoverMarkdown = (snapshot: DocumentSnapshot, symbol: SemanticSymbol): string => {
-  const lines = [
-    "```llvm",
-    symbolHoverTitle(symbol),
-    "```",
-    "",
-    "| Property | Value |",
-    "| --- | --- |",
-    `| Kind | \`${symbol.kind}\` |`,
-  ];
+  const lines = ["| Property | Value |", "| --- | --- |", `| Kind | \`${symbol.kind}\` |`];
   if (symbol.type) lines.push(`| Type | \`${symbol.type}\` |`);
   if (symbol.scopeName !== "module") lines.push(`| Scope | \`${symbol.scopeName}\` |`);
   const sourceLine = sourceLineAt(snapshot, symbol.definition.range.start.line).trim();
@@ -571,9 +563,6 @@ const symbolHoverMarkdown = (snapshot: DocumentSnapshot, symbol: SemanticSymbol)
   }
   return lines.join("\n");
 };
-
-const symbolHoverTitle = (symbol: SemanticSymbol): string =>
-  symbol.type ? `${symbol.name}: ${symbol.type}` : symbol.name;
 
 const symbolHoverContextLabel = (symbol: SemanticSymbol): string =>
   symbol.kind === "parameter" || symbol.kind === "function" ? "Signature" : "Definition";
