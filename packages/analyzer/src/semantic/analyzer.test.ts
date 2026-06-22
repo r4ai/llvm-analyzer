@@ -609,6 +609,8 @@ describe("docs", () => {
     expect(opcodeDocs.get("call")?.markdown).toContain(
       "https://llvm.org/docs/LangRef.html#call-instruction",
     );
+    expect(opcodeDocs.get("call")?.markdown).toContain("; n = strlen(s)");
+    expect(opcodeDocs.get("add")?.markdown).toContain("; sum = lhs + rhs");
     expect(opcodeDocs.get("add")?.markdown).toContain("%sum = add i32 %lhs, %rhs");
     expect(typeDocs.get("ptr")?.markdown).toContain("opaque pointer");
     expect(typeDocs.get("ptr")?.markdown).toContain(

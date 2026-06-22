@@ -89,6 +89,7 @@
   - opcode / type hover 辞書の利用者向け本文を英語へ揃えた
 - [x] **LangRef 参照付き Hover Docs**（2026-06-23）
   - opcode / type hover に短い意味、使い方、LLVM IR 例、公式 LangRef リンクを表示する
+  - Example には対応する操作を短い疑似コードコメントとして併記する
   - 公式 LangRef の該当セクションを参照しつつ、hover 向けに本文を簡潔化した
 
 ## メモ

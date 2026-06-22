@@ -17,13 +17,14 @@ export interface DocEntry {
 interface DocMarkdownOptions {
   readonly summary: string;
   readonly usage: string;
+  readonly pseudo: string;
   readonly example: string;
   readonly reference: string;
 }
 
 const langRef = (anchor: string): string => `https://llvm.org/docs/LangRef.html#${anchor}`;
 
-const docMarkdown = ({ summary, usage, example, reference }: DocMarkdownOptions): string =>
+const docMarkdown = ({ summary, usage, pseudo, example, reference }: DocMarkdownOptions): string =>
   [
     summary,
     "",
@@ -31,6 +32,7 @@ const docMarkdown = ({ summary, usage, example, reference }: DocMarkdownOptions)
     "",
     "Example:",
     "```llvm",
+    `; ${pseudo}`,
     example,
     "```",
     "",
@@ -59,6 +61,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Adds integer or integer vector values of the same type.",
         usage:
           "Use it for plain integer addition. Add `nuw` or `nsw` only when overflow is impossible under that rule.",
+        pseudo: "sum = lhs + rhs",
         example: "%sum = add i32 %lhs, %rhs",
         reference: langRef("add-instruction"),
       }),
@@ -72,6 +75,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Subtracts integer or integer vector values of the same type.",
         usage:
           "Use it for integer difference calculations. Overflow flags have the same care requirements as `add`.",
+        pseudo: "diff = lhs - rhs",
         example: "%diff = sub i32 %lhs, %rhs",
         reference: langRef("sub-instruction"),
       }),
@@ -85,6 +89,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Multiplies integer or integer vector values of the same type.",
         usage:
           "Use it for integer products. Prefer explicit overflow flags only when the IR producer can prove them.",
+        pseudo: "product = lhs * rhs",
         example: "%product = mul i32 %lhs, %rhs",
         reference: langRef("mul-instruction"),
       }),
@@ -98,6 +103,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Reads a typed value from memory through a pointer.",
         usage:
           "Use it when an SSA value must be materialized from an address. The result type is written before the pointer operand.",
+        pseudo: "value = *addr",
         example: "%value = load i32, ptr %addr, align 4",
         reference: langRef("load-instruction"),
       }),
@@ -110,6 +116,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
       markdown: docMarkdown({
         summary: "Writes a value to memory through a pointer.",
         usage: "Use it for side effects. It does not produce an SSA result.",
+        pseudo: "*addr = value",
         example: "store i32 %value, ptr %addr, align 4",
         reference: langRef("store-instruction"),
       }),
@@ -123,6 +130,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Converts the address bits of a pointer to an integer.",
         usage:
           "Use it when only the address component is needed. It differs from pointer provenance and non-address bits.",
+        pseudo: "addr = address_bits(p)",
         example: "%addr = ptrtoaddr ptr %p to i64",
         reference: langRef("ptrtoaddr-to-instruction"),
       }),
@@ -136,6 +144,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Calls a function and uses its return value when present.",
         usage:
           "Use it for direct or indirect calls. The result is omitted when the callee returns `void`.",
+        pseudo: "n = strlen(s)",
         example: "%n = call i32 @strlen(ptr %s)",
         reference: langRef("call-instruction"),
       }),
@@ -149,6 +158,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Returns control from the current function.",
         usage:
           "Use `ret void` for void functions, or return one value whose type matches the function result.",
+        pseudo: "return value",
         example: "ret i32 %value",
         reference: langRef("ret-instruction"),
       }),
@@ -162,6 +172,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Transfers control to another basic block.",
         usage:
           "Use the one-label form for unconditional branches, or `i1` plus two labels for conditional branches.",
+        pseudo: "jump = cond ? then : else",
         example: "br i1 %cond, label %then, label %else",
         reference: langRef("br-instruction"),
       }),
@@ -175,6 +186,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Selects an SSA value based on the predecessor block.",
         usage:
           "Use it at the start of a basic block to merge values from incoming control-flow edges.",
+        pseudo: "x = then ? a : b",
         example: "%x = phi i32 [ %a, %then ], [ %b, %else ]",
         reference: langRef("phi-instruction"),
       }),
@@ -188,6 +200,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
         summary: "Allocates stack memory in the current function frame.",
         usage:
           "Use it to create an addressable local object. The result is a pointer to the allocated storage.",
+        pseudo: "slot = stack_alloc(sizeof(i32))",
         example: "%slot = alloca i32, align 4",
         reference: langRef("alloca-instruction"),
       }),
@@ -216,6 +229,7 @@ export const typeDocs = new Map<string, DocEntry>([
         summary: "Type with no runtime value.",
         usage:
           "Use it as a function result type when the function returns only by side effect or control flow.",
+        pseudo: "sink(value) returns nothing",
         example: "define void @sink(i32 %value) { ... }",
         reference: langRef("void-type"),
       }),
@@ -228,6 +242,7 @@ export const typeDocs = new Map<string, DocEntry>([
       markdown: docMarkdown({
         summary: "LLVM opaque pointer type.",
         usage: "Use it for addresses without encoding the pointee type in the pointer itself.",
+        pseudo: "addr points to memory",
         example: "%value = load i32, ptr %addr",
         reference: langRef("pointer-type"),
       }),
@@ -240,6 +255,7 @@ export const typeDocs = new Map<string, DocEntry>([
       markdown: docMarkdown({
         summary: "Type of a basic block label.",
         usage: "Use it in terminators and constructs that refer to basic blocks.",
+        pseudo: "jump to exit",
         example: "br label %exit",
         reference: langRef("label-type"),
       }),
@@ -252,6 +268,7 @@ export const typeDocs = new Map<string, DocEntry>([
       markdown: docMarkdown({
         summary: "Type for debug info and other metadata nodes.",
         usage: "Use it for compiler annotations that are not ordinary runtime values.",
+        pseudo: "attach debug metadata",
         example: "!dbg !12",
         reference: langRef("metadata-type"),
       }),
@@ -265,6 +282,7 @@ export const typeDocs = new Map<string, DocEntry>([
         summary: "1-bit integer type, commonly used for conditions.",
         usage:
           "Use it for boolean-like SSA values such as `icmp` results and conditional branches.",
+        pseudo: "cond is true or false",
         example: "br i1 %cond, label %then, label %else",
         reference: langRef("integer-type"),
       }),
@@ -277,6 +295,7 @@ export const typeDocs = new Map<string, DocEntry>([
       markdown: docMarkdown({
         summary: "8-bit integer type.",
         usage: "Use it for byte-sized integer values and raw data elements.",
+        pseudo: "byte = *addr",
         example: "%byte = load i8, ptr %addr",
         reference: langRef("integer-type"),
       }),
@@ -289,6 +308,7 @@ export const typeDocs = new Map<string, DocEntry>([
       markdown: docMarkdown({
         summary: "32-bit integer type.",
         usage: "Use it for common scalar integer arithmetic and C-like `int` values.",
+        pseudo: "sum = lhs + rhs",
         example: "%sum = add i32 %lhs, %rhs",
         reference: langRef("integer-type"),
       }),
@@ -302,6 +322,7 @@ export const typeDocs = new Map<string, DocEntry>([
         summary: "64-bit integer type.",
         usage:
           "Use it for wide integer arithmetic, sizes, and target-sized values when appropriate.",
+        pseudo: "next = index + 1",
         example: "%next = add i64 %index, 1",
         reference: langRef("integer-type"),
       }),
@@ -315,6 +336,7 @@ export const typeDocs = new Map<string, DocEntry>([
         summary: "32-bit byte type.",
         usage:
           "Use byte types where the IR needs byte-oriented values instead of ordinary integers.",
+        pseudo: "x = *addr",
         example: "%x = load b32, ptr %addr",
         reference: langRef("integer-type"),
       }),
@@ -327,6 +349,7 @@ export const typeDocs = new Map<string, DocEntry>([
       markdown: docMarkdown({
         summary: "32-bit floating-point type.",
         usage: "Use it for single-precision floating-point arithmetic.",
+        pseudo: "sum = lhs + rhs",
         example: "%sum = fadd float %lhs, %rhs",
         reference: langRef("floating-point-types"),
       }),
@@ -339,6 +362,7 @@ export const typeDocs = new Map<string, DocEntry>([
       markdown: docMarkdown({
         summary: "64-bit floating-point type.",
         usage: "Use it for double-precision floating-point arithmetic.",
+        pseudo: "sum = lhs + rhs",
         example: "%sum = fadd double %lhs, %rhs",
         reference: langRef("floating-point-types"),
       }),
