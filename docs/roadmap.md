@@ -55,9 +55,10 @@
 - [x] **Call Hierarchy**（2026-06-22）
   - `call` / `invoke` / `callbr` の直接呼び出しを抽出し、callers / callees を返す
   - Workspace Symbols と同じファイル単位索引を使って複数ファイルの直接呼び出しを扱う
-- [ ] **Document Link**
+- [x] **Document Link**（2026-06-22）
   - `source_filename` と debug metadata のファイルパス候補を document link として返す
   - ワークスペース相対パスと絶対パスを安全に解決する
+  - 存在しないファイルはリンク化せず、コメント内 URL や任意文字列は対象外にする
 - [ ] **Format / Range Format**
   - まず range format を対象に、選択範囲内の空白・インデントを安定化する
   - 意味を変える pretty print は避け、AST を壊さない edit に絞る

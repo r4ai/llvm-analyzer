@@ -14,6 +14,7 @@ import {
 import { TextDocuments } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CallHierarchyIndex, callHierarchyProviderCapability } from "./lsp/call-hierarchy.ts";
+import { documentLinkProviderCapability, getDocumentLinks } from "./lsp/document-links.ts";
 import {
   getCompletionItems,
   getDefinition,
@@ -80,6 +81,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       definitionProvider: true,
       referencesProvider: true,
       documentSymbolProvider: true,
+      documentLinkProvider: documentLinkProviderCapability,
       workspaceSymbolProvider: workspaceSymbolProviderCapability,
       callHierarchyProvider: callHierarchyProviderCapability,
       completionProvider: { resolveProvider: false },
@@ -151,6 +153,13 @@ connection.onReferences((params) => {
 connection.onDocumentSymbol((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
   return snapshot ? getDocumentSymbols(snapshot) : [];
+});
+
+connection.onDocumentLinks((params) => {
+  const snapshot = snapshotFor(params.textDocument.uri);
+  return snapshot
+    ? getDocumentLinks(snapshot, { workspaceFolderUris: initialWorkspaceFolderUris })
+    : [];
 });
 
 connection.onWorkspaceSymbol((params) => workspaceSymbols.search(params.query));

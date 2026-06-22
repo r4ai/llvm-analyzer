@@ -1,5 +1,6 @@
 export { analyze } from "./semantic/analyzer.ts";
 export { opcodeDocs, typeDocs } from "./semantic/docs.ts";
+export { collectFileReferenceCandidates } from "./semantic/file-references.ts";
 export type {
   AnalyzeOptions,
   AnalyzerDiagnostic,
@@ -11,3 +12,4 @@ export type {
   SymbolId,
   SymbolKind,
 } from "./semantic/types.ts";
+export type { FileReferenceCandidate, FileReferenceSource } from "./semantic/file-references.ts";

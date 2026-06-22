@@ -51,6 +51,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - **診断**: 未定義値の参照、重複定義、同一命令内の自己参照、終端命令後の通常命令など（LLVM verifier 全体は再実装しない）。metadata attachment key、関数宣言の引数名、関数スコープの use-list order directive など、LangRef 上の非参照・非命令は誤診断しない。language-server で parser の構文診断とマージし、parser / analyzer / external verifier ごとに有効化と severity を適用する。
 - **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
 - **CFG / 呼び出し情報（予定）**: 関数単位で basic block successor と直接呼び出し先を抽出する。`br` / `switch` / `invoke` / `callbr` など静的に分かる範囲を対象にし、間接分岐や関数ポインタの完全解決は行わない。
+- **ファイル参照候補**: `source_filename` と `!DIFile(filename:, directory:)` から、エディタ上でリンク化できるファイルパス候補を抽出する。存在確認と URI 解決は language-server 側の副作用として分離し、コメント内 URL や任意文字列は対象にしない。
 - オペコード/型のドキュメント辞書を持ち、Hover/Completion で再利用。
 - 公開API例: `analyze(ast, { source }): SemanticModel`、`SemanticModel.definitionAt(pos)` / `referencesOf(symbol)` / `symbolAt(pos)` / `documentSymbols()` / `diagnostics()`
 
@@ -73,7 +74,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   - `inlayHint` ← 型構文モデル + SSA値の推定型。初期実装では parameter / local の定義名直後に `: type` を表示し、`llvm-analyzer.inlayHints.types.enabled` で切り替える。
   - `workspace/symbol` ← ワークスペース索引。`@function` / `@global` / `%type` / `!metadata` / 属性グループなどのトップレベル定義を返す
   - `callHierarchy/*` ← 直接呼び出し索引。`call` / `invoke` / `callbr` の `@callee` だけを扱い、間接呼び出しは解決しない
-  - `documentLink` ← `source_filename` / debug metadata のファイル参照候補
+  - `documentLink` ← `source_filename` / debug metadata のファイル参照候補。IR ファイルのディレクトリと workspace folder を基準に相対パスを解決し、実在するローカルファイルだけを返す
   - `formatting` / `rangeFormatting` ← AST を壊さない空白・インデント edit
   - `codeAction` ← stable diagnostic code と安全な修正候補
 

@@ -2,7 +2,7 @@
 
 LLVM IR (`.ll`) 向けの LSP 機能を提供する VSCode 拡張機能。
 
-現在はシンタックスハイライトに加えて、LSP 経由の hover / definition / references / documentSymbol / semanticTokens / diagnostics / completion / rename / foldingRange を提供する。
+現在はシンタックスハイライトに加えて、LSP 経由の hover / definition / references / documentSymbol / documentLink / semanticTokens / diagnostics / completion / rename / foldingRange を提供する。
 解析ロジックは純粋ドメイン層の parser / analyzer として分離している。
 最新 LLVM LangRef に追従し、`ptrtoaddr`、byte type `bN`、debug record、comdat、use-list order、複数行グローバル初期化子、`ptr addrspace(N)` 引数、PHI / `blockaddress` のラベル参照などを構造解析する。
 LLVM IR 型構文は scalar / pointer / vector / array / struct / function type / named type / opaque struct を軽量に AST 化し、複合型の hover / completion 表示にも利用する。
@@ -12,6 +12,7 @@ parser / analyzer / external verifier の診断は、ソースごとに有効化
 SSA 値の推定型は Inlay Hints として表示でき、設定で無効化できる。
 ワークスペース内の `.ll` ファイルにある関数・グローバル・名前付き型・メタデータなどは Workspace Symbols で検索できる。
 `call` / `invoke` / `callbr` の直接呼び出しは Call Hierarchy で callers / callees を辿れる。
+`source_filename` と `!DIFile` の実在ファイルは Document Link として開ける。
 
 - 全体設計: [docs/design.md](docs/design.md)
 - ロードマップ: [docs/roadmap.md](docs/roadmap.md)
