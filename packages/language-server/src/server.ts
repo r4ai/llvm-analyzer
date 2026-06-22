@@ -21,8 +21,10 @@ import {
   getDiagnostics,
   getDocumentSymbols,
   getFoldingRanges,
+  getFormattingEdits,
   getHover,
   getInlayHints,
+  getRangeFormattingEdits,
   inlayHintProviderCapability,
   getReferences,
   getRenameEdit,
@@ -31,6 +33,7 @@ import {
   semanticTokenLegend,
   type DocumentSnapshot,
   defaultInlayHintSettings,
+  formattingProviderCapability,
   normalizeInlayHintSettings,
   type InlayHintSettings,
 } from "./lsp/features.ts";
@@ -87,6 +90,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       completionProvider: { resolveProvider: false },
       renameProvider: { prepareProvider: false },
       foldingRangeProvider: true,
+      documentFormattingProvider: formattingProviderCapability,
+      documentRangeFormattingProvider: formattingProviderCapability,
       inlayHintProvider: inlayHintProviderCapability,
       semanticTokensProvider: {
         legend: semanticTokenLegend,
@@ -190,6 +195,16 @@ connection.languages.semanticTokens.on((params) => {
 connection.onFoldingRanges((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
   return snapshot ? getFoldingRanges(snapshot) : [];
+});
+
+connection.onDocumentFormatting((params) => {
+  const snapshot = snapshotFor(params.textDocument.uri);
+  return snapshot ? getFormattingEdits(snapshot) : [];
+});
+
+connection.onDocumentRangeFormatting((params) => {
+  const snapshot = snapshotFor(params.textDocument.uri);
+  return snapshot ? getRangeFormattingEdits(snapshot, params.range) : [];
 });
 
 connection.languages.inlayHint.on((params) => {

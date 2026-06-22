@@ -59,9 +59,10 @@
   - `source_filename` と debug metadata のファイルパス候補を document link として返す
   - ワークスペース相対パスと絶対パスを安全に解決する
   - 存在しないファイルはリンク化せず、コメント内 URL や任意文字列は対象外にする
-- [ ] **Format / Range Format**
+- [x] **Format / Range Format**（2026-06-22）
   - まず range format を対象に、選択範囲内の空白・インデントを安定化する
   - 意味を変える pretty print は避け、AST を壊さない edit に絞る
+  - トップレベル・ラベル・閉じブレースは左詰め、関数内の命令・コメントは2スペース字下げにする
 - [ ] **Control Flow Graph 表示**
   - 関数単位の CFG モデルを analyzer に追加する
   - VSCode command から現在関数の Mermaid / DOT を表示またはコピーできるようにする

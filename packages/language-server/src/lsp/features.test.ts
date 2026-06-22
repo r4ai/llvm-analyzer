@@ -6,15 +6,18 @@ import {
   getDiagnostics,
   getDocumentSymbols,
   getFoldingRanges,
+  getFormattingEdits,
   getHover,
   getInlayHints,
   getReferences,
+  getRangeFormattingEdits,
   getRenameEdit,
   getSemanticTokens,
   makeDocumentSnapshot,
   defaultInlayHintSettings,
   inlayHintProviderCapability,
   normalizeInlayHintSettings,
+  formattingProviderCapability,
 } from "./features.ts";
 
 const source = [
@@ -148,6 +151,102 @@ describe("LSP 機能アダプタ", () => {
       defaultInlayHintSettings,
     );
     expect(inlayHintProviderCapability).toBe(true);
+  });
+
+  it("formatting はドキュメント全体のインデントを正規化する", () => {
+    const unformatted = makeDocumentSnapshot(
+      "file:///format.ll",
+      [" define void @f() {", "entry:", "ret void", "}"].join("\n"),
+    );
+    const edits = getFormattingEdits(unformatted);
+
+    expect(edits).toEqual([
+      {
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 3, character: 1 },
+        },
+        newText: ["define void @f() {", "entry:", "  ret void", "}"].join("\n"),
+      },
+    ]);
+    expect(formattingProviderCapability).toBe(true);
+  });
+
+  it("rangeFormatting は指定行範囲だけを置き換える", () => {
+    const unformatted = makeDocumentSnapshot(
+      "file:///range-format.ll",
+      [
+        "@g = global i32 0",
+        " define void @f() {",
+        "entry:",
+        "ret void",
+        "}",
+        "@h = global i32 1",
+      ].join("\n"),
+    );
+    const edits = getRangeFormattingEdits(unformatted, {
+      start: { line: 1, character: 0 },
+      end: { line: 5, character: 0 },
+    });
+
+    expect(edits).toEqual([
+      {
+        range: {
+          start: { line: 1, character: 0 },
+          end: { line: 5, character: 0 },
+        },
+        newText: ["define void @f() {", "entry:", "  ret void", "}", ""].join("\n"),
+      },
+    ]);
+  });
+
+  it("rangeFormatting は end.character が0でない場合に終端行も含める", () => {
+    const unformatted = makeDocumentSnapshot(
+      "file:///range-format-end-character.ll",
+      ["define void @f() {", "entry:", "ret void", "}"].join("\n"),
+    );
+    const edits = getRangeFormattingEdits(unformatted, {
+      start: { line: 2, character: 1 },
+      end: { line: 2, character: 4 },
+    });
+
+    expect(edits).toEqual([
+      {
+        range: {
+          start: { line: 2, character: 0 },
+          end: { line: 3, character: 0 },
+        },
+        newText: "  ret void\n",
+      },
+    ]);
+  });
+
+  it("rangeFormatting は最終行までの範囲を末尾位置で置き換える", () => {
+    const unformatted = makeDocumentSnapshot(
+      "file:///range-format-eof.ll",
+      ["define void @f() {", "entry:", "ret void", "}"].join("\n"),
+    );
+    const edits = getRangeFormattingEdits(unformatted, {
+      start: { line: 0, character: 0 },
+      end: { line: 3, character: 1 },
+    });
+
+    expect(edits[0]?.range.end).toEqual({ line: 3, character: 1 });
+    expect(edits[0]?.newText).toBe(["define void @f() {", "entry:", "  ret void", "}"].join("\n"));
+  });
+
+  it("rangeFormatting は空 range で変更不要なら edit を返さない", () => {
+    const formatted = makeDocumentSnapshot(
+      "file:///range-format-empty.ll",
+      ["define void @f() {", "entry:", "  ret void", "}"].join("\n"),
+    );
+
+    expect(
+      getRangeFormattingEdits(formatted, {
+        start: { line: 2, character: 0 },
+        end: { line: 2, character: 0 },
+      }),
+    ).toEqual([]);
   });
 
   it("VSCode contributes.configuration に inlay hint 設定 schema がある", () => {

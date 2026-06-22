@@ -5,7 +5,7 @@ import {
   type SemanticSymbol,
   type SymbolKind,
 } from "@llvm-analyzer/analyzer";
-import { parseModule, type ParseDiagnostic, type Range } from "@llvm-analyzer/parser";
+import { formatLlvmIr, parseModule, type ParseDiagnostic, type Range } from "@llvm-analyzer/parser";
 import {
   CompletionItemKind,
   DiagnosticSeverity,
@@ -109,6 +109,8 @@ export const normalizeInlayHintSettings = (raw: unknown): InlayHintSettings => {
 
 /** Inlay hint provider の capability 宣言。 */
 export const inlayHintProviderCapability = true;
+/** formatting / rangeFormatting provider の capability 宣言。 */
+export const formattingProviderCapability = true;
 
 /**
  * LSP 機能の入力に使う不変スナップショットを作る。
@@ -298,6 +300,63 @@ export const getInlayHints = (
       kind: InlayHintKind.Type,
     }));
 };
+
+/** ドキュメント全体の formatting edit を返す。変更不要なら空配列。 */
+export const getFormattingEdits = (snapshot: DocumentSnapshot): TextEdit[] => {
+  const formatted = formatLlvmIr(snapshot.text);
+  if (formatted === snapshot.text) return [];
+  return [
+    {
+      range: {
+        start: { line: 0, character: 0 },
+        end: snapshot.document.positionAt(snapshot.text.length),
+      },
+      newText: formatted,
+    },
+  ];
+};
+
+/** 指定 range と交差する行全体の rangeFormatting edit を返す。 */
+export const getRangeFormattingEdits = (
+  snapshot: DocumentSnapshot,
+  range: LspRange,
+): TextEdit[] => {
+  const lines = snapshot.text.split("\n");
+  const formattedLines = formatLlvmIr(snapshot.text).split("\n");
+  const startLine = clamp(range.start.line, 0, Math.max(lines.length - 1, 0));
+  const endLineExclusive = clamp(
+    range.end.character === 0 ? range.end.line : range.end.line + 1,
+    startLine,
+    lines.length,
+  );
+  const originalText = replacementText(lines, startLine, endLineExclusive);
+  const newText = replacementText(formattedLines, startLine, endLineExclusive);
+  if (originalText === newText) return [];
+  return [
+    {
+      range: {
+        start: { line: startLine, character: 0 },
+        end:
+          endLineExclusive < lines.length
+            ? { line: endLineExclusive, character: 0 }
+            : snapshot.document.positionAt(snapshot.text.length),
+      },
+      newText,
+    },
+  ];
+};
+
+const replacementText = (
+  lines: readonly string[],
+  startLine: number,
+  endLineExclusive: number,
+): string =>
+  `${lines.slice(startLine, endLineExclusive).join("\n")}${
+    endLineExclusive < lines.length ? "\n" : ""
+  }`;
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(Math.max(value, min), max);
 
 const positionInRange = (position: Range["end"], range: LspRange): boolean =>
   comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;

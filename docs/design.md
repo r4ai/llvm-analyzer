@@ -39,6 +39,9 @@ parser/analyzer は `vscode*` に一切依存しない。
   - 公開API: `parseLlvmType(source: string): { type?: LlvmType; diagnostics: ParseDiagnostic[] }`、`formatLlvmType(type): string | undefined`。
   - 対象: scalar / pointer / vector / array / struct / function type / named type / opaque struct。`ptr addrspace(N)`、typed pointer、可変長引数、packed struct を扱う。
   - 役割は構文構造の取得に限定し、target datalayout に依存するサイズ計算や verifier 相当の型整合性検証は行わない。
+- **formatter**: LLVM IR 全体の行頭・行末空白と関数本体の基本インデントを安定化する純粋フォーマッタ。
+  - 公開API: `formatLlvmIr(source: string): string`。
+  - 現段階では pretty printer ではなく、トップレベル・ラベル・閉じブレースを左詰め、関数内の命令・コメントを2スペース字下げにする line-based 整形に限定する。
 - 公開API例: `parseModule(source: string): { ast: Module; diagnostics: ParseDiagnostic[] }`
 
 ### analyzer（純粋）
@@ -75,7 +78,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   - `workspace/symbol` ← ワークスペース索引。`@function` / `@global` / `%type` / `!metadata` / 属性グループなどのトップレベル定義を返す
   - `callHierarchy/*` ← 直接呼び出し索引。`call` / `invoke` / `callbr` の `@callee` だけを扱い、間接呼び出しは解決しない
   - `documentLink` ← `source_filename` / debug metadata のファイル参照候補。IR ファイルのディレクトリと workspace folder を基準に相対パスを解決し、実在するローカルファイルだけを返す
-  - `formatting` / `rangeFormatting` ← AST を壊さない空白・インデント edit
+  - `formatting` / `rangeFormatting` ← `formatLlvmIr` を使った空白・インデント edit。rangeFormatting は指定範囲と交差する行全体だけを置き換える
   - `codeAction` ← stable diagnostic code と安全な修正候補
 
 ### vscode-extension（配布物）
