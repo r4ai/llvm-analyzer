@@ -47,6 +47,43 @@ suite("LLVM IR 拡張機能 E2E", () => {
     assert.match(vscode.window.activeTextEditor?.document.getText() ?? "", /```mermaid/);
   });
 
+  test("rename provider は同一 SSA 値の edit を返す", async () => {
+    const document = await vscode.workspace.openTextDocument(helloUri);
+    await vscode.window.showTextDocument(document);
+
+    const edit = await retryValue(() =>
+      vscode.commands.executeCommand<vscode.WorkspaceEdit>(
+        "vscode.executeDocumentRenameProvider",
+        helloUri,
+        new vscode.Position(17, 4),
+        "%result",
+      ),
+    );
+    const changes = edit.get(helloUri);
+
+    assert.equal(changes.length, 2);
+    assert.deepEqual(
+      changes.map((change) => change.newText),
+      ["%result", "%result"],
+    );
+  });
+
+  test("inlay hint provider は SSA 値の型 hint を返す", async () => {
+    const document = await vscode.workspace.openTextDocument(helloUri);
+    await vscode.window.showTextDocument(document);
+
+    const hints = await retry(() =>
+      vscode.commands.executeCommand<vscode.InlayHint[]>(
+        "vscode.executeInlayHintProvider",
+        helloUri,
+        new vscode.Range(new vscode.Position(13, 0), new vscode.Position(26, 1)),
+      ),
+    );
+
+    assert.ok(hints.some((hint) => hint.label === ": ptr"));
+    assert.ok(hints.some((hint) => hint.label === ": i32"));
+  });
+
   test("関数外では CFG command が undefined を返す", async () => {
     const document = await vscode.workspace.openTextDocument(helloUri);
     const editor = await vscode.window.showTextDocument(document);
@@ -65,6 +102,14 @@ async function retry<T>(run: () => Thenable<T>, attempts = 20): Promise<T> {
   if (!Array.isArray(result) || result.length > 0 || attempts <= 1) return result;
   await new Promise((resolve) => setTimeout(resolve, 150));
   return retry(run, attempts - 1);
+}
+
+async function retryValue<T>(run: () => Thenable<T | undefined>, attempts = 20): Promise<T> {
+  const result = await run();
+  if (result !== undefined) return result;
+  if (attempts <= 1) throw new Error("provider did not return a value");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  return retryValue(run, attempts - 1);
 }
 
 function markdownText(hover: vscode.Hover | undefined): string {

@@ -16,6 +16,39 @@ const runnerWith =
     result;
 
 describe("runExternalVerifier", () => {
+  it("enabled=false では runner を呼ばない", async () => {
+    let calls = 0;
+    const runner: VerifierProcessRunner = async () => {
+      calls += 1;
+      return { exitCode: 1, stdout: "", stderr: "error" };
+    };
+
+    const diagnostics = await runExternalVerifier(documentOf("define void @f() {}\n"), {
+      ...defaultVerifierSettings,
+      enabled: false,
+      runner,
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("exit 0 と aborted=true は診断を出さない", async () => {
+    await expect(
+      runExternalVerifier(documentOf("define void @f() {}\n"), {
+        ...defaultVerifierSettings,
+        runner: runnerWith({ exitCode: 0, stdout: "", stderr: "" }),
+      }),
+    ).resolves.toEqual([]);
+
+    await expect(
+      runExternalVerifier(documentOf("define void @f() {}\n"), {
+        ...defaultVerifierSettings,
+        runner: runnerWith({ exitCode: null, stdout: "", stderr: "", aborted: true }),
+      }),
+    ).resolves.toEqual([]);
+  });
+
   it("LLVM stderr の行桁付き error を LSP Diagnostic に変換する", async () => {
     const runner = runnerWith({
       exitCode: 1,
@@ -59,6 +92,33 @@ describe("runExternalVerifier", () => {
           end: { line: 0, character: 1 },
         },
         message: "Instruction does not dominate all uses!\n  %x = add i32 1, 2",
+      }),
+    ]);
+  });
+
+  it("非0終了でも stderr が空なら診断を出さない", async () => {
+    const diagnostics = await runExternalVerifier(documentOf("define void @f() {}\n"), {
+      ...defaultVerifierSettings,
+      runner: runnerWith({ exitCode: 1, stdout: "", stderr: "" }),
+    });
+
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("warning 行は warning 診断に変換する", async () => {
+    const diagnostics = await runExternalVerifier(documentOf("define void @f() {\n}\n"), {
+      ...defaultVerifierSettings,
+      runner: runnerWith({
+        exitCode: 1,
+        stdout: "",
+        stderr: "<stdin>:1:1: warning: suspicious construct\n",
+      }),
+    });
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        message: "suspicious construct",
+        severity: 2,
       }),
     ]);
   });
@@ -115,5 +175,22 @@ describe("runExternalVerifier", () => {
 
     expect(diagnostics).toEqual([]);
     expect(calls).toBe(0);
+  });
+
+  it("AbortSignal を runner request へ渡す", async () => {
+    const controller = new AbortController();
+    let received: AbortSignal | undefined;
+    const runner: VerifierProcessRunner = async (request) => {
+      received = request.signal;
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    await runExternalVerifier(
+      documentOf("define void @f() {}\n"),
+      { ...defaultVerifierSettings, runner },
+      controller.signal,
+    );
+
+    expect(received).toBe(controller.signal);
   });
 });

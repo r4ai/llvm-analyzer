@@ -304,9 +304,27 @@ describe("analyze: 診断", () => {
 
     expect(modelOf(source).diagnostics()).toEqual([]);
   });
+
+  it("reportUndefinedReferences=false なら未定義参照診断を抑止する", () => {
+    const source = "define i32 @main() {\nentry:\n  ret i32 %missing\n}";
+    const model = analyze(parseModule(source).ast, {
+      source,
+      reportUndefinedReferences: false,
+    });
+
+    expect(model.diagnostics()).toEqual([]);
+  });
 });
 
 describe("analyze: 型解決と documentSymbol", () => {
+  it("source 省略時は型推定不能なシンボル型を undefined にする", () => {
+    const source = "define i32 @main(i32 %x) {\nentry:\n  %y = add i32 %x, 1\n  ret i32 %y\n}";
+    const model = analyze(parseModule(source).ast);
+
+    expect(model.symbolAt(posOf(source, "%x"))?.type).toBeUndefined();
+    expect(model.symbolAt(posOf(source, "%y"))?.type).toBeUndefined();
+  });
+
   it("命令結果の型をオペコード直後の型トークンから推定する", () => {
     const source = [
       "define i32 @main(i32 %argc) {",
@@ -350,6 +368,24 @@ describe("analyze: 型解決と documentSymbol", () => {
     const model = modelOf(source);
 
     expect(model.symbolAt(posOf(source, "%addr"))?.type).toBe("i64");
+  });
+
+  it.each([
+    ["%result", "select i1 %c, i32 %a, i32 %b", "i32"],
+    ["%result", "extractelement <4 x i32> %vec, i32 0", "i32"],
+    ["%result", "extractvalue { i32, i1 } %pair, 1", "i1"],
+    ["%result", "cmpxchg ptr %p, i32 %old, i32 %new seq_cst monotonic", "{ i32, i1 }"],
+    ["%result", "atomicrmw add ptr %p, i32 1 seq_cst", "i32"],
+  ])("LangRef と opcode 直後の型が異なる %s = %s の結果型を推定する", (name, instruction, type) => {
+    const source = [
+      "define void @f(i1 %c, i32 %a, i32 %b, <4 x i32> %vec, { i32, i1 } %pair, ptr %p, i32 %old, i32 %new) {",
+      "entry:",
+      `  ${name} = ${instruction}`,
+      "  ret void",
+      "}",
+    ].join("\n");
+
+    expect(modelOf(source).symbolAt(posOf(source, name))?.type).toBe(type);
   });
 
   it("型 AST ベースで複合型の引数と命令結果型を推定する", () => {
@@ -401,6 +437,25 @@ describe("analyze: 型解決と documentSymbol", () => {
       ["%x", "parameter"],
       ["entry", "label"],
       ["%v", "local"],
+    ]);
+  });
+});
+
+describe("analyze: 壊れた特殊構文", () => {
+  it("壊れた blockaddress は未解決ラベル診断にフォールバックする", () => {
+    const source = [
+      "@addr = constant ptr blockaddress(%target)",
+      "define void @f() {",
+      "entry:",
+      "  ret void",
+      "}",
+    ].join("\n");
+
+    expect(modelOf(source).diagnostics()).toEqual([
+      expect.objectContaining({
+        code: "undefined-reference",
+        message: "`%target` が定義されていません",
+      }),
     ]);
   });
 });

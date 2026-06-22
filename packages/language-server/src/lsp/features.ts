@@ -5,7 +5,13 @@ import {
   type SemanticSymbol,
   type SymbolKind,
 } from "@llvm-analyzer/analyzer";
-import { formatLlvmIr, parseModule, type ParseDiagnostic, type Range } from "@llvm-analyzer/parser";
+import {
+  formatLlvmIr,
+  parseModule,
+  tokenize,
+  type ParseDiagnostic,
+  type Range,
+} from "@llvm-analyzer/parser";
 import {
   CompletionItemKind,
   DiagnosticSeverity,
@@ -115,6 +121,10 @@ export const formattingProviderCapability = true;
 /** codeAction provider の capability 宣言。 */
 export const codeActionProviderCapability = { codeActionKinds: ["quickfix"] };
 
+export interface ReferenceOptions {
+  readonly includeDeclaration?: boolean;
+}
+
 /**
  * LSP 機能の入力に使う不変スナップショットを作る。
  *
@@ -132,8 +142,9 @@ export const makeDocumentSnapshot = (uri: string, text: string, version = 1): Do
 
 /** hover 表示を返す。識別子外では undefined。 */
 export const getHover = (snapshot: DocumentSnapshot, position: LspPosition): Hover | undefined => {
-  const symbol = symbolAt(snapshot, position);
-  if (!symbol) return undefined;
+  const occurrence = symbolOccurrenceAt(snapshot, position);
+  if (!occurrence) return docHoverAt(snapshot, position);
+  const { symbol, ref } = occurrence;
   const lines = [`\`${symbol.name}\``, "", `種類: ${symbol.kind}`];
   if (symbol.type) lines.push(`型: ${symbol.type}`);
   const doc =
@@ -144,7 +155,7 @@ export const getHover = (snapshot: DocumentSnapshot, position: LspPosition): Hov
       kind: MarkupKind.Markdown,
       value: lines.join("\n"),
     },
-    range: toLspRange(symbol.definition.range),
+    range: toLspRange(ref.range),
   };
 };
 
@@ -162,13 +173,23 @@ export const getDefinition = (
 };
 
 /** references の Location 列を返す。未解決なら空配列。 */
-export const getReferences = (snapshot: DocumentSnapshot, position: LspPosition): Location[] => {
+export const getReferences = (
+  snapshot: DocumentSnapshot,
+  position: LspPosition,
+  options: ReferenceOptions = {},
+): Location[] => {
   const symbol = symbolAt(snapshot, position);
   if (!symbol) return [];
-  return snapshot.model.referencesOf(symbol.id).map((ref) => ({
-    uri: snapshot.uri,
-    range: toLspRange(ref.range),
-  }));
+  return snapshot.model
+    .referencesOf(symbol.id)
+    .filter(
+      (ref) =>
+        options.includeDeclaration !== false || !sameRange(ref.range, symbol.definition.range),
+    )
+    .map((ref) => ({
+      uri: snapshot.uri,
+      range: toLspRange(ref.range),
+    }));
 };
 
 /** documentSymbol 用の階層シンボルを返す。 */
@@ -209,9 +230,9 @@ export const getDiagnostics = (
 /** 補完候補を返す。シンボルと基本命令・トップレベル語を候補にする。 */
 export const getCompletionItems = (
   snapshot: DocumentSnapshot,
-  _position: LspPosition,
+  position: LspPosition,
 ): CompletionItem[] => [
-  ...snapshot.model.symbols.map((symbol) => ({
+  ...completionSymbols(snapshot, position).map((symbol) => ({
     label: symbol.name,
     kind: completionKindOf(symbol.kind),
     detail: symbol.type ? `${symbol.kind}: ${symbol.type}` : symbol.kind,
@@ -240,7 +261,7 @@ export const getRenameEdit = (
   const edits = snapshot.model.referencesOf(symbol.id).map(
     (ref): TextEdit => ({
       range: toLspRange(ref.range),
-      newText: normalizeRename(symbol, newName),
+      newText: normalizeRenameForRef(symbol, ref, newName),
     }),
   );
   return { changes: { [snapshot.uri]: edits } };
@@ -513,6 +534,73 @@ const booleanSetting = (value: unknown, fallback: boolean): boolean =>
 const symbolAt = (snapshot: DocumentSnapshot, position: LspPosition): SemanticSymbol | undefined =>
   snapshot.model.symbolAt(toParserPosition(snapshot, position));
 
+const symbolOccurrenceAt = (
+  snapshot: DocumentSnapshot,
+  position: LspPosition,
+):
+  | { readonly symbol: SemanticSymbol; readonly ref: SemanticSymbol["references"][number] }
+  | undefined => {
+  const parserPosition = toParserPosition(snapshot, position);
+  const symbol = snapshot.model.symbolAt(parserPosition);
+  if (!symbol) return undefined;
+  const ref = snapshot.model
+    .referencesOf(symbol.id)
+    .find((candidate) => containsRange(candidate.range, parserPosition));
+  return ref ? { symbol, ref } : undefined;
+};
+
+const docHoverAt = (snapshot: DocumentSnapshot, position: LspPosition): Hover | undefined => {
+  const token = tokenAt(snapshot, position);
+  if (!token) return undefined;
+  const doc = opcodeDocs.get(token.value) ?? typeDocs.get(token.value);
+  if (!doc) return undefined;
+  return {
+    contents: {
+      kind: MarkupKind.Markdown,
+      value: [`\`${doc.label}\``, "", doc.markdown].join("\n"),
+    },
+    range: token.range,
+  };
+};
+
+const tokenAt = (
+  snapshot: DocumentSnapshot,
+  position: LspPosition,
+): { readonly value: string; readonly range: LspRange } | undefined => {
+  const lineText = snapshot.document.getText({
+    start: { line: position.line, character: 0 },
+    end: { line: position.line + 1, character: 0 },
+  });
+  const tokens = tokenize(lineText).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  return tokens
+    .map((token) => ({
+      value: token.value,
+      range: {
+        start: { line: position.line, character: token.range.start.column },
+        end: { line: position.line, character: token.range.end.column },
+      },
+    }))
+    .find(
+      (token) =>
+        position.character >= token.range.start.character &&
+        position.character < token.range.end.character,
+    );
+};
+
+const completionSymbols = (
+  snapshot: DocumentSnapshot,
+  position: LspPosition,
+): readonly SemanticSymbol[] => {
+  const graph = snapshot.model.controlFlowGraphAt(toParserPosition(snapshot, position));
+  return snapshot.model.symbols.filter(
+    (symbol) =>
+      symbol.scopeId === "module" ||
+      (graph !== undefined && symbol.scopeName === graph.functionName),
+  );
+};
+
 const toParserPosition = (snapshot: DocumentSnapshot, position: LspPosition) => ({
   offset: snapshot.document.offsetAt(position),
   line: position.line,
@@ -586,8 +674,15 @@ const tokenTypeOf = (kind: SymbolKind): string => {
   }
 };
 
-const normalizeRename = (symbol: SemanticSymbol, newName: string): string => {
-  if (symbol.kind === "label") return newName.replace(/^%/u, "");
+const normalizeRenameForRef = (
+  symbol: SemanticSymbol,
+  ref: SemanticSymbol["references"][number],
+  newName: string,
+): string => {
+  if (symbol.kind === "label") {
+    const bareName = newName.replace(/^%/u, "");
+    return sameRange(ref.range, symbol.definition.range) ? bareName : `%${bareName}`;
+  }
   const sigil = symbol.name.match(/^[@%!#$]/u)?.[0];
   if (!sigil || newName.startsWith(sigil)) return newName;
   return `${sigil}${newName}`;
@@ -595,3 +690,11 @@ const normalizeRename = (symbol: SemanticSymbol, newName: string): string => {
 
 const sameRange = (a: Range, b: Range): boolean =>
   a.start.offset === b.start.offset && a.end.offset === b.end.offset;
+
+const containsRange = (
+  range: Range,
+  position: { readonly offset: number; readonly line: number },
+): boolean =>
+  (position.offset > range.start.offset ||
+    (position.offset === range.start.offset && position.line >= range.start.line)) &&
+  position.offset < range.end.offset;

@@ -243,6 +243,21 @@ describe("parseModule: 関数定義", () => {
     ]);
   });
 
+  it("ラベル前の debug record は暗黙ブロックに入る", () => {
+    const fn = [
+      "define void @f(ptr %p) {",
+      "  #dbg_value(ptr %p, !0, !DIExpression(), !1)",
+      "entry:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(entry.blocks.map((block) => block.label?.name)).toEqual([undefined, "entry"]);
+    expect(entry.blocks[0]?.debugRecords?.map((record) => record.name)).toEqual(["#dbg_value"]);
+  });
+
   it("複数行 switch を1つの終端命令として扱う", () => {
     const fn = [
       "define void @f(i32 %x) {",

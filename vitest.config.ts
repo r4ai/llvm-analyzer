@@ -3,8 +3,9 @@ import { defineConfig } from "vitest/config";
 /**
  * モノレポ全体の vitest 設定。
  * 各パッケージの `src/**` 直下に置かれた `*.test.ts` を既定のグロブで収集する。
- * カバレッジは純粋ドメイン層（parser/analyzer）の `src` を対象にし、
- * テスト・公開バレル（index.ts）は計測から除外する。
+ * カバレッジは `src` の実装を対象にする。
+ * テスト・公開バレル（index.ts）と起動副作用を持つ entrypoint は計測から除外し、
+ * entrypoint 配線は切り出した helper と E2E で検証する。
  */
 export default defineConfig({
   test: {
@@ -12,7 +13,12 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["packages/*/src/**/*.ts"],
-      exclude: ["packages/*/src/**/*.test.ts", "packages/*/src/**/index.ts"],
+      exclude: [
+        "packages/*/src/**/*.test.ts",
+        "packages/*/src/**/index.ts",
+        "packages/language-server/src/server.ts",
+        "packages/vscode-extension/src/extension.ts",
+      ],
       reporter: ["text", "html"],
     },
   },

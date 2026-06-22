@@ -5,16 +5,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   FileChangeType,
   ProposedFeatures,
-  TextDocumentSyncKind,
   createConnection,
   type Diagnostic,
   type InitializeParams,
-  type InitializeResult,
 } from "vscode-languageserver/node";
 import { TextDocuments } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { CallHierarchyIndex, callHierarchyProviderCapability } from "./lsp/call-hierarchy.ts";
-import { documentLinkProviderCapability, getDocumentLinks } from "./lsp/document-links.ts";
+import { CallHierarchyIndex } from "./lsp/call-hierarchy.ts";
+import { getDocumentLinks } from "./lsp/document-links.ts";
 import {
   getCompletionItems,
   getCodeActions,
@@ -26,16 +24,12 @@ import {
   getHover,
   getInlayHints,
   getRangeFormattingEdits,
-  inlayHintProviderCapability,
   getReferences,
   getRenameEdit,
   getSemanticTokens,
   makeDocumentSnapshot,
-  semanticTokenLegend,
   type DocumentSnapshot,
   defaultInlayHintSettings,
-  codeActionProviderCapability,
-  formattingProviderCapability,
   normalizeInlayHintSettings,
   type InlayHintSettings,
 } from "./lsp/features.ts";
@@ -51,10 +45,8 @@ import {
   runExternalVerifier,
   type ExternalVerifierSettings,
 } from "./lsp/verifier.ts";
-import {
-  WorkspaceSymbolIndex,
-  workspaceSymbolProviderCapability,
-} from "./lsp/workspace-symbols.ts";
+import { WorkspaceSymbolIndex } from "./lsp/workspace-symbols.ts";
+import { createInitializeResult, normalizeVerifierSettings } from "./server-config.ts";
 
 const DIAGNOSTIC_DEBOUNCE_MS = 150;
 const VERIFIER_CONFIG_SECTION = "llvm-analyzer.verifier";
@@ -76,33 +68,10 @@ let diagnosticSettingsCache: Promise<DiagnosticSettings> | undefined;
 let inlayHintSettingsCache: Promise<InlayHintSettings> | undefined;
 let initialWorkspaceFolderUris: readonly string[] = [];
 
-connection.onInitialize((params: InitializeParams): InitializeResult => {
+connection.onInitialize((params: InitializeParams) => {
   supportsConfiguration = params.capabilities.workspace?.configuration === true;
   initialWorkspaceFolderUris = params.workspaceFolders?.map((folder) => folder.uri) ?? [];
-  return {
-    capabilities: {
-      textDocumentSync: TextDocumentSyncKind.Incremental,
-      hoverProvider: true,
-      definitionProvider: true,
-      referencesProvider: true,
-      documentSymbolProvider: true,
-      documentLinkProvider: documentLinkProviderCapability,
-      workspaceSymbolProvider: workspaceSymbolProviderCapability,
-      callHierarchyProvider: callHierarchyProviderCapability,
-      completionProvider: { resolveProvider: false },
-      codeActionProvider: codeActionProviderCapability,
-      renameProvider: { prepareProvider: false },
-      foldingRangeProvider: true,
-      documentFormattingProvider: formattingProviderCapability,
-      documentRangeFormattingProvider: formattingProviderCapability,
-      inlayHintProvider: inlayHintProviderCapability,
-      semanticTokensProvider: {
-        legend: semanticTokenLegend,
-        range: false,
-        full: true,
-      },
-    },
-  };
+  return createInitializeResult();
 });
 
 connection.onInitialized(() => {
@@ -155,7 +124,7 @@ connection.onDefinition((params) => {
 
 connection.onReferences((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
-  return snapshot ? getReferences(snapshot, params.position) : [];
+  return snapshot ? getReferences(snapshot, params.position, params.context) : [];
 });
 
 connection.onDocumentSymbol((params) => {
@@ -343,15 +312,7 @@ function inlayHintSettings(): Promise<InlayHintSettings> {
 async function loadVerifierSettings(): Promise<ExternalVerifierSettings> {
   if (!supportsConfiguration) return defaultVerifierSettings;
   const raw = await connection.workspace.getConfiguration(VERIFIER_CONFIG_SECTION);
-  if (!isRecord(raw)) return defaultVerifierSettings;
-  return {
-    enabled: booleanSetting(raw.enabled, defaultVerifierSettings.enabled),
-    command: stringSetting(raw.command, defaultVerifierSettings.command),
-    args: stringArraySetting(raw.args, defaultVerifierSettings.args),
-    debounceMs: numberSetting(raw.debounceMs, defaultVerifierSettings.debounceMs),
-    timeoutMs: numberSetting(raw.timeoutMs, defaultVerifierSettings.timeoutMs),
-    maxFileBytes: numberSetting(raw.maxFileBytes, defaultVerifierSettings.maxFileBytes),
-  };
+  return normalizeVerifierSettings(raw);
 }
 
 async function loadDiagnosticSettings(): Promise<DiagnosticSettings> {
@@ -444,26 +405,4 @@ async function closeWorkspaceDocument(uri: string): Promise<void> {
 
 function isLlFileUri(uri: string): boolean {
   return uri.startsWith("file:") && uri.endsWith(".ll");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function booleanSetting(value: unknown, fallback: boolean): boolean {
-  return typeof value === "boolean" ? value : fallback;
-}
-
-function stringSetting(value: unknown, fallback: string): string {
-  return typeof value === "string" && value.length > 0 ? value : fallback;
-}
-
-function stringArraySetting(value: unknown, fallback: readonly string[]): string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-    ? value
-    : [...fallback];
-}
-
-function numberSetting(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }

@@ -48,4 +48,36 @@ describe("collectFileReferenceCandidates", () => {
       "debug src/nested\\main.c",
     ]);
   });
+
+  it("filename 欠落・空文字・directory 欠落を安全に扱う", () => {
+    const source = [
+      'source_filename = ""',
+      '!0 = !DIFile(directory: "/workspace")',
+      '!1 = !DIFile(filename: "", directory: "/workspace")',
+      '!2 = !DIFile(filename: "main.c")',
+    ].join("\n");
+    const candidates = collectFileReferenceCandidates(parseModule(source).ast, source);
+
+    expect(candidates.map((candidate) => candidate.path)).toEqual(["main.c"]);
+  });
+
+  it("directory 末尾の slash と backslash を重複させずに結合する", () => {
+    const source = [
+      '!0 = !DIFile(filename: "main.c", directory: "/workspace/src/")',
+      '!1 = !DIFile(filename: "main.c", directory: "C:\\5Cworkspace\\5Csrc\\5C")',
+    ].join("\n");
+    const candidates = collectFileReferenceCandidates(parseModule(source).ast, source);
+
+    expect(candidates.map((candidate) => candidate.path)).toEqual([
+      "/workspace/src/main.c",
+      "C:\\workspace\\src\\main.c",
+    ]);
+  });
+
+  it("quote と backslash escape を復号する", () => {
+    const source = 'source_filename = "quoted\\22name\\\\tail.c"';
+    const candidates = collectFileReferenceCandidates(parseModule(source).ast, source);
+
+    expect(candidates.map((candidate) => candidate.path)).toEqual(['quoted"name\\tail.c']);
+  });
 });

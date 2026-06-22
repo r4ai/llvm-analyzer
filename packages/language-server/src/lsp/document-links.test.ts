@@ -98,4 +98,19 @@ describe("getDocumentLinks", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("非 file URI と不正 workspace URI では解決可能な base だけを使う", async () => {
+    const snapshot = makeDocumentSnapshot("untitled:out.ll", 'source_filename = "main.c"\n');
+    const seen: string[] = [];
+    const links = await getDocumentLinks(snapshot, {
+      workspaceFolderUris: ["not a uri", "file:///workspace"],
+      fileExists: async (filePath) => {
+        seen.push(filePath);
+        return filePath === "/workspace/main.c";
+      },
+    });
+
+    expect(seen).toEqual(["/workspace/main.c"]);
+    expect(links.map((link) => link.target)).toEqual(["file:///workspace/main.c"]);
+  });
 });

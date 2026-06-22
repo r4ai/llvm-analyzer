@@ -37,6 +37,7 @@ describe("parseLlvmType", () => {
     ["{ i32, ptr }", "{ i32, ptr }"],
     ["{}", "{}"],
     ["<{ i8, ptr addrspace(1) }>", "<{ i8, ptr addrspace(1) }>"],
+    ["<{}>", "<{}>"],
     ["opaque", "opaque"],
   ])("%s を composite type として読む", (source, printed) => {
     const result = parseLlvmType(source);
@@ -64,6 +65,7 @@ describe("parseLlvmType", () => {
     ["[x i32]", "配列要素数が必要です"],
     ["{ i32, }", "要素型が必要です"],
     ["i32 (ptr, i8", "`)` が必要です"],
+    ["void (ptr,)", "要素型が必要です"],
   ])("%s は診断を返す", (source, message) => {
     const result = parseLlvmType(source);
 

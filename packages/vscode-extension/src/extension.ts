@@ -3,12 +3,8 @@ import { analyze, formatControlFlowGraphAsMermaid } from "@llvm-analyzer/analyze
 import { parseModule } from "@llvm-analyzer/parser";
 import type { ExtensionContext, TextEditor } from "vscode";
 import { commands, window, workspace } from "vscode";
-import {
-  LanguageClient,
-  TransportKind,
-  type LanguageClientOptions,
-  type ServerOptions,
-} from "vscode-languageclient/node";
+import { LanguageClient, TransportKind } from "vscode-languageclient/node";
+import { buildClientOptions, buildServerOptions } from "./extension-config.ts";
 
 let client: LanguageClient | undefined;
 
@@ -19,25 +15,8 @@ let client: LanguageClient | undefined;
  */
 export const activate = async (context: ExtensionContext): Promise<void> => {
   const serverModule = context.asAbsolutePath(path.join("dist", "server.js"));
-  const serverOptions: ServerOptions = {
-    run: { module: serverModule, transport: TransportKind.ipc },
-    debug: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-      options: { execArgv: ["--nolazy", "--inspect=6009"] },
-    },
-  };
-  const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: "llvm" }],
-    synchronize: {
-      configurationSection: [
-        "llvm-analyzer.verifier",
-        "llvm-analyzer.diagnostics",
-        "llvm-analyzer.inlayHints",
-      ],
-      fileEvents: workspace.createFileSystemWatcher("**/*.ll"),
-    },
-  };
+  const serverOptions = buildServerOptions(serverModule, TransportKind.ipc);
+  const clientOptions = buildClientOptions(workspace.createFileSystemWatcher("**/*.ll"));
 
   client = new LanguageClient(
     "llvm-analyzer",

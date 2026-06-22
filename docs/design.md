@@ -66,13 +66,13 @@ parser/analyzer は `vscode*` に一切依存しない。
 - ワークスペース横断機能は language-server 側で `.ll` ファイルごとの解析結果を索引化し、parser/analyzer の純粋 API から得たシンボル・呼び出し・ファイル参照候補を LSP 形式へ変換する。
   初期の workspace symbol 索引は URI 単位で `DocumentSnapshot` を保持し、open document・workspace folder 初期走査・watched file events で更新する。
 - capability ↔ analyzer クエリの対応:
-  - `hover` ← `symbolAt` + 型/ドキュメント辞書
-  - `definition` / `references` ← 定義/参照インデックス
+  - `hover` ← `symbolAt` + 型/ドキュメント辞書。シンボル参照ではホバー対象の出現範囲を返し、opcode/type token では短い LangRef 補助説明を返す
+  - `definition` / `references` ← 定義/参照インデックス。`references` は LSP の `includeDeclaration` を尊重する
   - `documentSymbol` ← `documentSymbols`
   - `semanticTokens/full` ← トークン分類
   - `publishDiagnostics` ← `diagnostics` + optional external LLVM verifier
-  - `completion` ← 基本キーワード/オペコード/スコープ内識別子
-  - `rename` ← 参照インデックス
+  - `completion` ← 基本キーワード/オペコード/スコープ内識別子。関数内ではモジュールスコープと現在関数スコープ、関数外ではモジュールスコープだけを返す
+  - `rename` ← 参照インデックス。ラベルは定義名（`exit:`）と参照名（`%exit`）で置換文字列を分ける
   - `foldingRange` ← 関数/ブロック範囲
   - `inlayHint` ← 型構文モデル + SSA値の推定型。初期実装では parameter / local の定義名直後に `: type` を表示し、`llvm-analyzer.inlayHints.types.enabled` で切り替える。
   - `workspace/symbol` ← ワークスペース索引。`@function` / `@global` / `%type` / `!metadata` / 属性グループなどのトップレベル定義を返す

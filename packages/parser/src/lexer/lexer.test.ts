@@ -44,6 +44,10 @@ describe("tokenize: コメント", () => {
     ]);
   });
 
+  it("未終端 block comment は末尾まで Comment とする", () => {
+    expect(kinds("/* hello\nworld")).toEqual([["Comment", "/* hello\nworld"]]);
+  });
+
   it("コメントは改行を含まない", () => {
     expect(kinds("; a\nret")).toEqual([
       ["Comment", "; a"],

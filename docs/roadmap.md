@@ -71,6 +71,10 @@
   - stable diagnostic code を整備し、修正可能な診断だけ quick fix を返す
   - 近い名前への置換、verifier 設定案内、終端命令後の通常命令への安全な候補に絞る
   - 初期実装では未定義グローバル・未定義ラベルの近い既存名への置換と、終端命令後の通常命令削除を返す
+- [x] **レビュー指摘とテスト未カバー対応**（2026-06-22）
+  - label rename の定義・参照置換、LangRef とズレる代表命令の結果型推定を修正
+  - completion の関数スコープ絞り込み、hover range と opcode/type docs、references の `includeDeclaration` 対応を追加
+  - verifier / feature adapter / analyzer / parser / file reference / extension 起動設定の境界テストと E2E を補強
 
 ## メモ
 

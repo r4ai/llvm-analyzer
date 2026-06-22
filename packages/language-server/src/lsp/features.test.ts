@@ -95,6 +95,39 @@ describe("LSP 機能アダプタ", () => {
     );
   });
 
+  it("completion は現在位置の関数スコープだけを候補にする", () => {
+    const scoped = makeDocumentSnapshot(
+      "file:///completion-scope.ll",
+      [
+        "@g = global i32 0",
+        "define void @f(i32 %x) {",
+        "entry:",
+        "  %a = add i32 %x, 1",
+        "  br label %done",
+        "done:",
+        "  ret void",
+        "}",
+        "define void @gfunc(i32 %y) {",
+        "other:",
+        "  %b = add i32 %y, 1",
+        "  ret void",
+        "}",
+      ].join("\n"),
+    );
+
+    const inFunction = getCompletionItems(scoped, { line: 4, character: 11 }).map(
+      (item) => item.label,
+    );
+    expect(inFunction).toEqual(expect.arrayContaining(["@g", "@f", "%x", "%a", "done"]));
+    expect(inFunction).not.toEqual(expect.arrayContaining(["%y", "%b", "other"]));
+
+    const atModule = getCompletionItems(scoped, { line: 0, character: 0 }).map(
+      (item) => item.label,
+    );
+    expect(atModule).toEqual(expect.arrayContaining(["@g", "@f", "@gfunc"]));
+    expect(atModule).not.toEqual(expect.arrayContaining(["%x", "%a", "done"]));
+  });
+
   it("rename は同一シンボルの全出現だけを書き換える", () => {
     const edit = getRenameEdit(snapshot, { line: 4, character: 4 }, "%total");
 
@@ -102,6 +135,56 @@ describe("LSP 機能アダプタ", () => {
     expect(edit?.changes?.[snapshot.uri]?.map((change) => change.newText)).toEqual([
       "%total",
       "%total",
+    ]);
+  });
+
+  it("rename はラベル定義とラベル参照の置換文字列を分ける", () => {
+    const edit = getRenameEdit(snapshot, { line: 6, character: 1 }, "%done");
+
+    expect(edit?.changes?.[snapshot.uri]).toEqual([
+      {
+        range: {
+          start: { line: 5, character: 11 },
+          end: { line: 5, character: 16 },
+        },
+        newText: "%done",
+      },
+      {
+        range: {
+          start: { line: 6, character: 0 },
+          end: { line: 6, character: 4 },
+        },
+        newText: "done",
+      },
+    ]);
+  });
+
+  it("hover は参照位置の range と opcode / type docs を返す", () => {
+    expect(getHover(snapshot, { line: 7, character: 11 })?.range).toEqual({
+      start: { line: 7, character: 10 },
+      end: { line: 7, character: 14 },
+    });
+
+    expect(getHover(snapshot, { line: 4, character: 9 })?.contents).toMatchObject({
+      kind: "markdown",
+      value: expect.stringContaining("加算"),
+    });
+    expect(getHover(snapshot, { line: 7, character: 6 })?.contents).toMatchObject({
+      kind: "markdown",
+      value: expect.stringContaining("32 bit"),
+    });
+  });
+
+  it("references は includeDeclaration=false で定義位置を除外する", () => {
+    expect(
+      getReferences(snapshot, { line: 7, character: 11 }, { includeDeclaration: false }).map(
+        (location) => location.range,
+      ),
+    ).toEqual([
+      {
+        start: { line: 7, character: 10 },
+        end: { line: 7, character: 14 },
+      },
     ]);
   });
 

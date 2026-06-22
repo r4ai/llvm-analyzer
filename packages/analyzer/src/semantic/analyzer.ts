@@ -687,7 +687,120 @@ const inferInstructionResultType = (
     if (toIndex < 0) return undefined;
     return leadingTypeText(afterOpcode.slice(toIndex + "to".length));
   }
+  const specificType = inferInstructionResultTypeByOpcode(instruction.opcode, afterOpcode);
+  if (specificType !== undefined) return specificType;
   return leadingTypeText(afterOpcode);
+};
+
+/**
+ * opcode 固有の結果型規則を適用する。
+ *
+ * @param opcode 命令 opcode。
+ * @param afterOpcode opcode 直後から命令末尾までのソース断片。
+ * @returns opcode 固有規則で分かる結果型。未対応なら undefined。
+ */
+const inferInstructionResultTypeByOpcode = (
+  opcode: string,
+  afterOpcode: string,
+): string | undefined => {
+  const tokens = tokenize(afterOpcode).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  const segments = splitTopLevelSegments(tokens);
+  switch (opcode) {
+    case "select":
+      return leadingTypeOf(segments[1] ?? []);
+    case "extractelement":
+      return elementTypeOfVector(leadingTypeOf(segments[0] ?? []));
+    case "extractvalue":
+      return indexedAggregateElementType(leadingTypeOf(segments[0] ?? []), segments[1] ?? []);
+    case "cmpxchg": {
+      const valueType = leadingTypeOf(segments[1] ?? []);
+      return valueType ? `{ ${valueType}, i1 }` : undefined;
+    }
+    case "atomicrmw":
+      return inferAtomicRmwResultType(tokens);
+    default:
+      return undefined;
+  }
+};
+
+/** top-level の `,` でトークン列を分割する。 */
+const splitTopLevelSegments = (tokens: readonly Token[]): readonly Token[][] => {
+  const segments: Token[][] = [];
+  let current: Token[] = [];
+  let depth = 0;
+  for (const token of tokens) {
+    if (token.value === "," && depth === 0) {
+      segments.push(current);
+      current = [];
+      continue;
+    }
+    current.push(token);
+    depth = updateTypeDepth(depth, token.value);
+    if (token.value === "(") depth += 1;
+    else if (token.value === ")") depth = Math.max(0, depth - 1);
+  }
+  segments.push(current);
+  return segments;
+};
+
+/** ベクトル型の要素型を取り出す。 */
+const elementTypeOfVector = (type: string | undefined): string | undefined => {
+  if (!type) return undefined;
+  const match = /^<\s*(?:vscale x\s*)?\d+ x (?<element>.+)>$/u.exec(type);
+  return match?.groups?.element;
+};
+
+/** 単純な struct / array から extractvalue の単一 index 結果型を取り出す。 */
+const indexedAggregateElementType = (
+  aggregateType: string | undefined,
+  indexSegment: readonly Token[],
+): string | undefined => {
+  if (!aggregateType) return undefined;
+  const indexToken = indexSegment.find((token) => /^\d+$/u.test(token.value));
+  if (!indexToken) return undefined;
+  const index = Number.parseInt(indexToken.value, 10);
+  if (!Number.isInteger(index) || index < 0) return undefined;
+  const elements = aggregateElementTypes(aggregateType);
+  return elements[index];
+};
+
+/** 表示用に整形済みの集約型文字列から top-level の要素型を分割する。 */
+const aggregateElementTypes = (type: string): readonly string[] => {
+  const structMatch = /^\{ (?<body>.*) \}$/u.exec(type) ?? /^<\{ (?<body>.*) \}>$/u.exec(type);
+  if (structMatch?.groups?.body !== undefined)
+    return splitTopLevelTypeText(structMatch.groups.body);
+  const arrayMatch = /^\[(?<count>\d+) x (?<element>.+)\]$/u.exec(type);
+  if (arrayMatch?.groups?.element !== undefined) return [arrayMatch.groups.element];
+  return [];
+};
+
+/** top-level の `,` で型文字列を分割する。 */
+const splitTopLevelTypeText = (source: string): readonly string[] => {
+  const parts: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (const char of source) {
+    if (char === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+    if (char === "{" || char === "[" || char === "<" || char === "(") depth += 1;
+    else if (char === "}" || char === "]" || char === ">" || char === ")")
+      depth = Math.max(0, depth - 1);
+  }
+  if (current.trim() !== "") parts.push(current.trim());
+  return parts;
+};
+
+/** atomicrmw は演算名の後にポインタ operand と値 operand が続く。 */
+const inferAtomicRmwResultType = (tokens: readonly Token[]): string | undefined => {
+  const withoutOperation = tokens.slice(1);
+  const segments = splitTopLevelSegments(withoutOperation);
+  return leadingTypeOf(segments[1] ?? []);
 };
 
 /**
