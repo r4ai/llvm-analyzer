@@ -23,10 +23,12 @@ SSA 値の推定型は Inlay Hints として表示でき、設定で無効化で
 
 ## 開発
 
-ツールは [mise](https://mise.jdx.dev/) で管理する（Node 24 / pnpm / lefthook / pinact）。
+Node 24 / lefthook / pinact は [mise](https://mise.jdx.dev/) で管理する。
+pnpm はルート `package.json` の `packageManager` で固定し、Corepack 経由で使う。
 
 ```sh
 mise install            # ツールチェーンを導入
+corepack enable         # packageManager の pnpm を有効化
 pnpm install            # 依存をインストール（git hook も設定される）
 pnpm lint               # oxlint
 pnpm format             # oxfmt --check
