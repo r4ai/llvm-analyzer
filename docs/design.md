@@ -79,7 +79,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   - `callHierarchy/*` ← 直接呼び出し索引。`call` / `invoke` / `callbr` の `@callee` だけを扱い、間接呼び出しは解決しない
   - `documentLink` ← `source_filename` / debug metadata のファイル参照候補。IR ファイルのディレクトリと workspace folder を基準に相対パスを解決し、実在するローカルファイルだけを返す
   - `formatting` / `rangeFormatting` ← `formatLlvmIr` を使った空白・インデント edit。rangeFormatting は指定範囲と交差する行全体だけを置き換える
-  - `codeAction` ← stable diagnostic code と安全な修正候補
+  - `codeAction` ← stable diagnostic code と安全な修正候補。初期実装では未定義グローバル・未定義ラベルの近い既存名への置換と、終端命令後の通常命令削除だけを quick fix として返す
 
 ### vscode-extension（配布物）
 

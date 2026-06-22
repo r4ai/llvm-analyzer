@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   getCompletionItems,
+  getCodeActions,
   getDefinition,
   getDiagnostics,
   getDocumentSymbols,
@@ -18,6 +19,7 @@ import {
   inlayHintProviderCapability,
   normalizeInlayHintSettings,
   formattingProviderCapability,
+  codeActionProviderCapability,
 } from "./features.ts";
 
 const source = [
@@ -263,6 +265,196 @@ describe("LSP 機能アダプタ", () => {
     ).toMatchObject({
       type: "boolean",
       default: defaultInlayHintSettings.types.enabled,
+    });
+  });
+
+  it("codeAction は未定義グローバルを近い名前へ置換する quick fix を返す", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-global.ll",
+      [
+        "@print = global i32 0",
+        "define void @f() {",
+        "entry:",
+        "  call void @pront()",
+        "  ret void",
+        "}",
+      ].join("\n"),
+    );
+    const diagnostics = getDiagnostics(broken);
+    const actions = getCodeActions(
+      broken,
+      {
+        start: { line: 3, character: 12 },
+        end: { line: 3, character: 18 },
+      },
+      diagnostics,
+    );
+
+    expect(actions).toEqual([
+      expect.objectContaining({
+        title: "`@pront` を `@print` に置換",
+        kind: "quickfix",
+        edit: {
+          changes: {
+            [broken.uri]: [
+              {
+                range: {
+                  start: { line: 3, character: 12 },
+                  end: { line: 3, character: 18 },
+                },
+                newText: "@print",
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    expect(codeActionProviderCapability).toEqual({ codeActionKinds: ["quickfix"] });
+  });
+
+  it("codeAction は未定義ラベルを近いラベルへ置換する quick fix を返す", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-label.ll",
+      ["define void @f() {", "entry:", "  br label %exut", "exit:", "  ret void", "}"].join("\n"),
+    );
+    const actions = getCodeActions(
+      broken,
+      {
+        start: { line: 2, character: 11 },
+        end: { line: 2, character: 16 },
+      },
+      getDiagnostics(broken),
+    );
+
+    expect(actions.map((action) => action.title)).toContain("`%exut` を `%exit` に置換");
+  });
+
+  it("codeAction は未定義ローカル値へラベル quick fix を返さない", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-local.ll",
+      ["define void @f() {", "entry:", "  %x = add i32 %exut, 1", "exit:", "  ret void", "}"].join(
+        "\n",
+      ),
+    );
+
+    expect(
+      getCodeActions(
+        broken,
+        {
+          start: { line: 2, character: 15 },
+          end: { line: 2, character: 20 },
+        },
+        getDiagnostics(broken),
+      ),
+    ).toEqual([]);
+  });
+
+  it("codeAction は別関数ラベルと no-op 置換を候補にしない", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-label-scope.ll",
+      [
+        "define void @f() {",
+        "entry:",
+        "  br label %exut",
+        "exit:",
+        "  ret void",
+        "}",
+        "define void @g() {",
+        "entry:",
+        "  br label %exut",
+        "exut:",
+        "  ret void",
+        "}",
+      ].join("\n"),
+    );
+    const actions = getCodeActions(
+      broken,
+      {
+        start: { line: 2, character: 11 },
+        end: { line: 2, character: 16 },
+      },
+      getDiagnostics(broken),
+    );
+
+    expect(actions.map((action) => action.title)).toEqual(["`%exut` を `%exit` に置換"]);
+  });
+
+  it("codeAction は遠い名前や非重複 range では quick fix を返さない", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-distant.ll",
+      [
+        "@completely_different = global i32 0",
+        "define void @f() {",
+        "entry:",
+        "  call void @x()",
+        "  ret void",
+        "}",
+      ].join("\n"),
+    );
+
+    expect(
+      getCodeActions(
+        broken,
+        {
+          start: { line: 3, character: 16 },
+          end: { line: 3, character: 16 },
+        },
+        getDiagnostics(broken),
+      ),
+    ).toEqual([]);
+  });
+
+  it("codeAction は終端命令後の命令削除 quick fix を返す", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-delete.ll",
+      ["define void @f() {", "entry:", "  ret void", "  %x = add i32 1, 2", "}"].join("\n"),
+    );
+    const actions = getCodeActions(
+      broken,
+      {
+        start: { line: 3, character: 2 },
+        end: { line: 3, character: 20 },
+      },
+      getDiagnostics(broken),
+    );
+
+    expect(actions).toEqual([
+      expect.objectContaining({
+        title: "終端命令後の命令を削除",
+        edit: {
+          changes: {
+            [broken.uri]: [
+              {
+                range: {
+                  start: { line: 3, character: 0 },
+                  end: { line: 4, character: 0 },
+                },
+                newText: "",
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+  });
+
+  it("codeAction は最終行の終端後命令を末尾まで削除する", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-delete-eof.ll",
+      ["define void @f() {", "entry:", "  ret void", "  %x = add i32 1, 2"].join("\n"),
+    );
+    const actions = getCodeActions(
+      broken,
+      {
+        start: { line: 3, character: 2 },
+        end: { line: 3, character: 20 },
+      },
+      getDiagnostics(broken),
+    );
+
+    expect(actions[0]?.edit?.changes?.[broken.uri]?.[0]?.range).toEqual({
+      start: { line: 3, character: 0 },
+      end: { line: 3, character: 19 },
     });
   });
 });

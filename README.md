@@ -15,6 +15,7 @@ SSA 値の推定型は Inlay Hints として表示でき、設定で無効化で
 `source_filename` と `!DIFile` の実在ファイルは Document Link として開ける。
 行頭・行末空白と関数内インデントは Format / Range Format で安定化できる。
 現在関数の Control Flow Graph は Mermaid として表示できる。
+未定義の近いグローバル・ラベル名への置換や、終端命令後の命令削除は Quick Fix として提示する。
 
 - 全体設計: [docs/design.md](docs/design.md)
 - ロードマップ: [docs/roadmap.md](docs/roadmap.md)

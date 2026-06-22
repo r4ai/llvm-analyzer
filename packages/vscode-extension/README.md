@@ -15,6 +15,7 @@ LLVM IR (`.ll`) 向けの VSCode 拡張機能。
 - `source_filename` と `!DIFile` の実在ファイルを開く Document Link。
 - 行頭・行末空白と関数内インデントを安定化する Format / Range Format。
 - 現在関数の Control Flow Graph を Mermaid として表示する command。
+- 未定義の近いグローバル・ラベル名への置換や終端命令後の命令削除を提示する Quick Fix。
 
 ## 設定
 

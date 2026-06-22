@@ -13,6 +13,7 @@ import {
   MarkupKind,
   SymbolKind as LspSymbolKind,
   type CompletionItem,
+  type CodeAction,
   type Diagnostic,
   type DocumentSymbol,
   type FoldingRange,
@@ -111,6 +112,8 @@ export const normalizeInlayHintSettings = (raw: unknown): InlayHintSettings => {
 export const inlayHintProviderCapability = true;
 /** formatting / rangeFormatting provider の capability 宣言。 */
 export const formattingProviderCapability = true;
+/** codeAction provider の capability 宣言。 */
+export const codeActionProviderCapability = { codeActionKinds: ["quickfix"] };
 
 /**
  * LSP 機能の入力に使う不変スナップショットを作る。
@@ -344,6 +347,136 @@ export const getRangeFormattingEdits = (
       newText,
     },
   ];
+};
+
+/** 診断に対する安全な Quick Fix を返す。 */
+export const getCodeActions = (
+  snapshot: DocumentSnapshot,
+  range: LspRange,
+  diagnostics: readonly Diagnostic[],
+): CodeAction[] =>
+  diagnostics
+    .filter((diagnostic) => rangesOverlap(diagnostic.range, range))
+    .flatMap((diagnostic) => codeActionsForDiagnostic(snapshot, diagnostic));
+
+const codeActionsForDiagnostic = (
+  snapshot: DocumentSnapshot,
+  diagnostic: Diagnostic,
+): CodeAction[] => {
+  if (diagnostic.source !== "llvm-analyzer") return [];
+  if (diagnostic.code === "undefined-reference") {
+    const current = snapshot.document.getText(diagnostic.range);
+    const candidate = closestReplacement(snapshot, current, diagnostic.range);
+    if (!candidate) return [];
+    return [
+      {
+        title: `\`${current}\` を \`${candidate}\` に置換`,
+        kind: "quickfix",
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [snapshot.uri]: [{ range: diagnostic.range, newText: candidate }],
+          },
+        },
+      },
+    ];
+  }
+  if (diagnostic.code === "instruction-after-terminator") {
+    return [
+      {
+        title: "終端命令後の命令を削除",
+        kind: "quickfix",
+        diagnostics: [diagnostic],
+        edit: {
+          changes: {
+            [snapshot.uri]: [
+              { range: lineRange(snapshot, diagnostic.range.start.line), newText: "" },
+            ],
+          },
+        },
+      },
+    ];
+  }
+  return [];
+};
+
+const closestReplacement = (
+  snapshot: DocumentSnapshot,
+  current: string,
+  range: LspRange,
+): string | undefined => {
+  const candidates = replacementCandidates(snapshot, current, range).filter(
+    (candidate) => candidate !== current,
+  );
+  return candidates.toSorted((a, b) => editDistance(current, a) - editDistance(current, b))[0];
+};
+
+const replacementCandidates = (
+  snapshot: DocumentSnapshot,
+  current: string,
+  range: LspRange,
+): string[] => {
+  if (current.startsWith("@")) {
+    return snapshot.model.symbols
+      .filter(
+        (symbol) =>
+          symbol.scopeId === "module" && (symbol.kind === "function" || symbol.kind === "global"),
+      )
+      .map((symbol) => symbol.name)
+      .filter((name) => isCloseName(current, name));
+  }
+  if (current.startsWith("%")) {
+    if (!isLabelReferenceContext(snapshot, range)) return [];
+    const functionGraph = snapshot.model.controlFlowGraphAt(
+      toParserPosition(snapshot, range.start),
+    );
+    if (!functionGraph) return [];
+    return snapshot.model.symbols
+      .filter(
+        (symbol) => symbol.kind === "label" && symbol.scopeName === functionGraph.functionName,
+      )
+      .map((symbol) => `%${symbol.name}`)
+      .filter((name) => isCloseName(current, name));
+  }
+  return [];
+};
+
+const isLabelReferenceContext = (snapshot: DocumentSnapshot, range: LspRange): boolean => {
+  const offset = snapshot.document.offsetAt(range.start);
+  const lineStart = snapshot.text.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+  const before = snapshot.text.slice(lineStart, offset).trimEnd();
+  return /\blabel\s*$/u.test(before);
+};
+
+const isCloseName = (current: string, candidate: string): boolean =>
+  editDistance(current, candidate) <= Math.max(2, Math.floor(current.length / 3));
+
+const lineRange = (snapshot: DocumentSnapshot, line: number): LspRange => {
+  const nextLineOffset = snapshot.document.offsetAt({ line: line + 1, character: 0 });
+  const start = { line, character: 0 };
+  if (nextLineOffset < snapshot.text.length)
+    return { start, end: { line: line + 1, character: 0 } };
+  return { start, end: snapshot.document.positionAt(snapshot.text.length) };
+};
+
+const rangesOverlap = (left: LspRange, right: LspRange): boolean =>
+  comparePosition(left.start, right.end) < 0 && comparePosition(right.start, left.end) < 0;
+
+const editDistance = (left: string, right: string): number => {
+  const previous = Array.from({ length: right.length + 1 }, (_value, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= right.length; column += 1) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      current[column] = Math.min(
+        (current[column - 1] ?? 0) + 1,
+        (previous[column] ?? 0) + 1,
+        (previous[column - 1] ?? 0) + cost,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length] ?? 0;
 };
 
 const replacementText = (

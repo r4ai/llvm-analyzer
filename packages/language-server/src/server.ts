@@ -17,6 +17,7 @@ import { CallHierarchyIndex, callHierarchyProviderCapability } from "./lsp/call-
 import { documentLinkProviderCapability, getDocumentLinks } from "./lsp/document-links.ts";
 import {
   getCompletionItems,
+  getCodeActions,
   getDefinition,
   getDiagnostics,
   getDocumentSymbols,
@@ -33,6 +34,7 @@ import {
   semanticTokenLegend,
   type DocumentSnapshot,
   defaultInlayHintSettings,
+  codeActionProviderCapability,
   formattingProviderCapability,
   normalizeInlayHintSettings,
   type InlayHintSettings,
@@ -88,6 +90,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       workspaceSymbolProvider: workspaceSymbolProviderCapability,
       callHierarchyProvider: callHierarchyProviderCapability,
       completionProvider: { resolveProvider: false },
+      codeActionProvider: codeActionProviderCapability,
       renameProvider: { prepareProvider: false },
       foldingRangeProvider: true,
       documentFormattingProvider: formattingProviderCapability,
@@ -180,6 +183,11 @@ connection.languages.callHierarchy.onOutgoingCalls((params) => callHierarchy.out
 connection.onCompletion((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
   return snapshot ? getCompletionItems(snapshot, params.position) : [];
+});
+
+connection.onCodeAction((params) => {
+  const snapshot = snapshotFor(params.textDocument.uri);
+  return snapshot ? getCodeActions(snapshot, params.range, params.context.diagnostics) : [];
 });
 
 connection.onRenameRequest((params) => {

@@ -67,9 +67,10 @@
   - 関数単位の CFG モデルを analyzer に追加する
   - VSCode command から現在関数の Mermaid / DOT を表示またはコピーできるようにする
   - 初期実装は Mermaid を untitled markdown document として表示する
-- [ ] **Code Action / Quick Fix**
+- [x] **Code Action / Quick Fix**（2026-06-22）
   - stable diagnostic code を整備し、修正可能な診断だけ quick fix を返す
   - 近い名前への置換、verifier 設定案内、終端命令後の通常命令への安全な候補に絞る
+  - 初期実装では未定義グローバル・未定義ラベルの近い既存名への置換と、終端命令後の通常命令削除を返す
 
 ## メモ
 
