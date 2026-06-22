@@ -1,4 +1,10 @@
-import { analyze, opcodeDocs, type SemanticSymbol, type SymbolKind } from "@llvm-analyzer/analyzer";
+import {
+  analyze,
+  opcodeDocs,
+  typeDocs,
+  type SemanticSymbol,
+  type SymbolKind,
+} from "@llvm-analyzer/analyzer";
 import { parseModule, type ParseDiagnostic, type Range } from "@llvm-analyzer/parser";
 import {
   CompletionItemKind,
@@ -51,6 +57,12 @@ const KEYWORD_COMPLETIONS = [
   "store",
   "add",
   "icmp",
+  "ptrtoaddr",
+  "module",
+  "asm",
+  "comdat",
+  "uselistorder",
+  "uselistorder_bb",
 ];
 
 export interface DocumentSnapshot {
@@ -160,6 +172,12 @@ export const getCompletionItems = (
     label: keyword,
     kind: CompletionItemKind.Keyword,
     detail: "LLVM IR keyword/opcode",
+  })),
+  ...[...typeDocs.values()].map((doc) => ({
+    label: doc.label,
+    kind: CompletionItemKind.TypeParameter,
+    detail: "LLVM IR type",
+    documentation: doc.markdown,
   })),
 ];
 

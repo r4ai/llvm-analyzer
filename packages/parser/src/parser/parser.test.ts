@@ -100,6 +100,19 @@ describe("parseModule: グローバル変数", () => {
     expect(entry?.kind).toBe("GlobalVariable");
     if (entry) expect(refsOf(entry)).toEqual([["GlobalRef", "@.str"]]);
   });
+
+  it("複数行のグローバル初期化子を1つの GlobalVariable にする", () => {
+    const src = [
+      "@llvm.used = appending global [2 x ptr] [",
+      "  ptr @foo,",
+      "  ptr @bar",
+      "]",
+    ].join("\n");
+    const { ast, diagnostics } = parseModule(src);
+    expect(ast.entries).toHaveLength(1);
+    expect(ast.entries[0]?.kind).toBe("GlobalVariable");
+    expect(diagnostics).toEqual([]);
+  });
 });
 
 describe("parseModule: 関数宣言", () => {
@@ -177,6 +190,49 @@ describe("parseModule: 関数定義", () => {
     const fn = "define void @f(i32 %x) {\n  ret void\n}";
     const entry = parseModule(fn).ast.entries[0];
     expect(entry?.references.some((r) => r.name === "%x")).toBe(true);
+  });
+
+  it("debug record を命令ではない本体要素として分離する", () => {
+    const fn = [
+      "define void @f(ptr %p) {",
+      "entry:",
+      "  #dbg_value(ptr %p, !0, !DIExpression(), !1)",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+    expect(entry.blocks[0]?.instructions.map((instruction) => instruction.opcode)).toEqual(["ret"]);
+    expect(entry.blocks[0]?.debugRecords?.map((record) => record.name) ?? []).toEqual([
+      "#dbg_value",
+    ]);
+  });
+
+  it("数値ラベルで基本ブロックを分割する", () => {
+    const fn = "define void @f() {\n0:\n  br label %1\n1:\n  ret void\n}";
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+    expect(entry.blocks.map((block) => block.label?.name)).toEqual(["0", "1"]);
+  });
+});
+
+describe("parseModule: 最新 LangRef のトップレベル構文", () => {
+  it("module asm / comdat / use-list order を UnknownEntry にしない", () => {
+    const src = [
+      'module asm "nop"',
+      "$foo = comdat any",
+      "uselistorder ptr @g, { 1, 0 }",
+      "uselistorder_bb @f, %bb, { 0 }",
+    ].join("\n");
+    const { ast, diagnostics } = parseModule(src);
+    expect(ast.entries.map((entry) => entry.kind)).toEqual([
+      "ModuleAsm",
+      "ComdatDefinition",
+      "UseListOrderDirective",
+      "UseListOrderDirective",
+    ]);
+    expect(ast.entries[1]?.defines?.name).toBe("$foo");
+    expect(diagnostics).toEqual([]);
   });
 });
 

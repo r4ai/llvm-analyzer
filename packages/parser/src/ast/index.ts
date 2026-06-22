@@ -1,6 +1,8 @@
 export type {
   AttributeGroupDefinition,
   BasicBlock,
+  ComdatDefinition,
+  DebugRecord,
   DiagnosticSeverity,
   EntryBase,
   FunctionDeclaration,
@@ -8,6 +10,8 @@ export type {
   GlobalVariable,
   IdentifierRef,
   Instruction,
+  MetadataDefinition,
+  ModuleAsm,
   Module,
   NodeBase,
   ParseDiagnostic,
@@ -17,5 +21,5 @@ export type {
   TopLevelEntry,
   TypeDefinition,
   UnknownEntry,
-  MetadataDefinition,
+  UseListOrderDirective,
 } from "./ast.ts";

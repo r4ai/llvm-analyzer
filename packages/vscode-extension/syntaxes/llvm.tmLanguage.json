@@ -9,6 +9,7 @@
     { "include": "#identifier" },
     { "include": "#metadata" },
     { "include": "#attribute-group" },
+    { "include": "#debug-record" },
     { "include": "#keyword" },
     { "include": "#instruction" },
     { "include": "#constant" },
@@ -17,8 +18,17 @@
   ],
   "repository": {
     "comment": {
-      "match": ";.*$",
-      "name": "comment.line.semicolon.llvm"
+      "patterns": [
+        {
+          "match": ";.*$",
+          "name": "comment.line.semicolon.llvm"
+        },
+        {
+          "begin": "/\\*",
+          "end": "\\*/",
+          "name": "comment.block.llvm"
+        }
+      ]
     },
     "string": {
       "begin": "\"",
@@ -73,10 +83,14 @@
       "match": "#[0-9]+",
       "name": "storage.modifier.attribute-group.llvm"
     },
+    "debug-record": {
+      "match": "#dbg_[-a-zA-Z$._0-9]+",
+      "name": "entity.name.tag.debug-record.llvm"
+    },
     "keyword": {
       "patterns": [
         {
-          "match": "\\b(define|declare|global|constant|alias|ifunc|module|target|source_filename|datalayout|triple|attributes|comdat|uselistorder|uselistorder_bb|type|to|from|within|blockaddress|addrspace|section|partition|align|alignstack|gc|prefix|prologue|personality|asm|sideeffect|inteldialect|distinct|no_cfi)\\b",
+          "match": "\\b(define|declare|global|constant|alias|ifunc|module|target|source_filename|datalayout|triple|attributes|comdat|uselistorder|uselistorder_bb|type|to|from|within|blockaddress|addrspace|section|partition|align|alignstack|gc|prefix|prologue|personality|asm|sideeffect|inteldialect|distinct|no_cfi|any|exactmatch|largest|noduplicates|samesize)\\b",
           "name": "keyword.other.llvm"
         },
         {
@@ -98,7 +112,7 @@
       ]
     },
     "instruction": {
-      "match": "\\b(ret|br|switch|indirectbr|invoke|callbr|resume|catchswitch|catchret|cleanupret|unreachable|fneg|add|fadd|sub|fsub|mul|fmul|udiv|sdiv|fdiv|urem|srem|frem|shl|lshr|ashr|and|or|xor|extractelement|insertelement|shufflevector|extractvalue|insertvalue|alloca|load|store|fence|cmpxchg|atomicrmw|getelementptr|trunc|zext|sext|fptrunc|fpext|fptoui|fptosi|uitofp|sitofp|ptrtoint|inttoptr|bitcast|addrspacecast|icmp|fcmp|phi|select|freeze|call|va_arg|landingpad|catchpad|cleanuppad)\\b",
+      "match": "\\b(ret|br|switch|indirectbr|invoke|callbr|resume|catchswitch|catchret|cleanupret|unreachable|fneg|add|fadd|sub|fsub|mul|fmul|udiv|sdiv|fdiv|urem|srem|frem|shl|lshr|ashr|and|or|xor|extractelement|insertelement|shufflevector|extractvalue|insertvalue|alloca|load|store|fence|cmpxchg|atomicrmw|getelementptr|trunc|zext|sext|fptrunc|fpext|fptoui|fptosi|uitofp|sitofp|ptrtoint|inttoptr|ptrtoaddr|bitcast|addrspacecast|icmp|fcmp|phi|select|freeze|call|va_arg|landingpad|catchpad|cleanuppad)\\b",
       "name": "keyword.control.instruction.llvm"
     },
     "constant": {
@@ -108,7 +122,7 @@
     "type": {
       "patterns": [
         {
-          "match": "\\bi[0-9]+\\b",
+          "match": "\\b(?:i|b)[0-9]+\\b",
           "name": "storage.type.integer.llvm"
         },
         {
@@ -119,6 +133,18 @@
     },
     "number": {
       "patterns": [
+        {
+          "match": "\\b[su]0[xX][0-9A-Fa-f]+\\b",
+          "name": "constant.numeric.hex.llvm"
+        },
+        {
+          "match": "[-+]?0[xX](?:[0-9A-Fa-f]+\\.[0-9A-Fa-f]*|\\.[0-9A-Fa-f]+|[0-9A-Fa-f]+)[pP][-+]?[0-9]+",
+          "name": "constant.numeric.hex.float.llvm"
+        },
+        {
+          "match": "[-+]?(?:inf|nan|qnan|snan)\\b",
+          "name": "constant.numeric.float.special.llvm"
+        },
         {
           "match": "\\b0x[KLMHR]?[0-9A-Fa-f]+\\b",
           "name": "constant.numeric.hex.llvm"

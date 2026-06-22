@@ -102,7 +102,11 @@ export interface SemanticSymbol {
 }
 
 /** analyzer が出す診断コード。 */
-export type AnalyzerDiagnosticCode = "duplicate-definition" | "undefined-reference";
+export type AnalyzerDiagnosticCode =
+  | "duplicate-definition"
+  | "undefined-reference"
+  | "self-reference-before-definition"
+  | "instruction-after-terminator";
 
 /**
  * 意味解析で検出した診断。
@@ -198,7 +202,7 @@ export interface SemanticModel {
   /**
    * 解析時に収集した意味診断を返す。
    *
-   * @returns 重複定義と未定義参照の診断列。
+   * @returns 重複定義・未定義参照・最小限の well-formedness 診断列。
    */
   diagnostics(): readonly AnalyzerDiagnostic[];
 }

@@ -11,8 +11,15 @@ const NAME_START = /[-A-Za-z$._]/;
 /** バーワード（記号なしの語）の先頭になれる文字。 */
 const BAREWORD_START = /[A-Za-z._]/;
 
+/** C 互換の 16 進浮動小数リテラル。 */
+const C_HEX_FLOAT =
+  /[-+]?0[xX](?:(?:[0-9A-Fa-f]+\.[0-9A-Fa-f]*)|(?:\.[0-9A-Fa-f]+)|(?:[0-9A-Fa-f]+))[pP][-+]?\d+/y;
+/** `s0x` / `u0x` 形式の整数リテラル。 */
+const SIGNED_HEX_INTEGER = /[su]0[xX][0-9A-Fa-f]+/y;
 /** `0x` 16進・特殊float リテラル。 */
 const HEX_NUMBER = /0[xX][KLMHR]?[0-9A-Fa-f]+/y;
+/** `+inf` / `-qnan` などの特殊浮動小数リテラル。 */
+const SPECIAL_FLOAT = /[-+]?(?:inf|nan|qnan|snan)(?![-A-Za-z$._0-9])/y;
 /** 整数・浮動小数リテラル（符号・指数・先頭ドットを含む）。 */
 const DEC_NUMBER = /[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?/y;
 
@@ -86,7 +93,7 @@ export const tokenize = (source: string): Token[] => {
 
   /** `pos` から数値リテラルにマッチすればその終端、しなければ null。 */
   const matchNumber = (pos: number): number | null => {
-    for (const re of [HEX_NUMBER, DEC_NUMBER]) {
+    for (const re of [C_HEX_FLOAT, SIGNED_HEX_INTEGER, HEX_NUMBER, SPECIAL_FLOAT, DEC_NUMBER]) {
       re.lastIndex = pos;
       const matched = re.exec(source);
       if (matched && matched.index === pos && matched[0].length > 0) {
@@ -110,6 +117,13 @@ export const tokenize = (source: string): Token[] => {
     if (ch === ";") {
       let end = pos + 1;
       while (end < length && source[end] !== "\n") end += 1;
+      emit("Comment", pos, end);
+      pos = end;
+      continue;
+    }
+    if (ch === "/" && source[pos + 1] === "*") {
+      const close = source.indexOf("*/", pos + 2);
+      const end = close >= 0 ? close + 2 : length;
       emit("Comment", pos, end);
       pos = end;
       continue;
@@ -155,6 +169,15 @@ export const tokenize = (source: string): Token[] => {
         while (end < length && isDigit(source[end])) end += 1;
         emit("AttributeGroup", pos, end);
         pos = end;
+      } else if (next !== undefined && NAME_START.test(next)) {
+        const end = scanName(pos + 1);
+        if (source.slice(pos + 1, end).startsWith("dbg_")) {
+          emit("DebugRecord", pos, end);
+          pos = end;
+        } else {
+          emit("Punctuation", pos, pos + 1);
+          pos += 1;
+        }
       } else {
         emit("Punctuation", pos, pos + 1);
         pos += 1;
@@ -162,8 +185,25 @@ export const tokenize = (source: string): Token[] => {
       continue;
     }
 
+    // 数値ラベル `0:`。`:` は次ループで記号として読む。
+    if (isDigit(ch)) {
+      let end = pos;
+      while (end < length && isDigit(source[end])) end += 1;
+      if (source[end] === ":" && source[end + 1] !== ":") {
+        emit("Label", pos, end);
+        pos = end;
+        continue;
+      }
+    }
+
     // 数値
-    if (isDigit(ch) || ch === "+" || ch === "-" || ch === ".") {
+    if (
+      isDigit(ch) ||
+      ch === "+" ||
+      ch === "-" ||
+      ch === "." ||
+      ((ch === "s" || ch === "u") && source[pos + 1] === "0" && /[xX]/.test(source[pos + 2] ?? ""))
+    ) {
       const end = matchNumber(pos);
       if (end !== null) {
         emit("Number", pos, end);

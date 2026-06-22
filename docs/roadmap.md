@@ -27,9 +27,13 @@
 - [x] **E2E + 配布**（2026-06-22）
   - `@vscode/test-electron` によるE2E（`.ll` を開いて hover/definition を検証）
   - README 充実、`@vscode/vsce` で `.vsix` パッケージ
+- [x] **最新 LangRef 準拠差分**（2026-06-22）
+  - `ptrtoaddr`、byte type `bN`、`/* ... */` コメント、拡張数値リテラル、数値ラベル、debug record `#dbg_*` を lexer/parser に追加
+  - `module asm`、comdat 定義、use-list order、複数行トップレベルエントリを AST 化
+  - 名前付き型 `%T` と関数引数 `%x` の誤認を抑止し、同一命令自己参照・終端後命令の最小 well-formedness 診断を追加
 
 ## メモ
 
 - テストはテスティングピラミッドに従い、ユニット（lexer/parser/analyzer）を厚く、結合（source→LSPクエリ）を中程度、E2E（extension host）を薄く。
-- 対象は最新安定 LLVM IR（opaque pointer `ptr`）。typed pointer は寛容にパースするが警告しない。
+- 対象は最新 LLVM LangRef（opaque pointer `ptr`）。typed pointer は寛容にパースするが警告しない。
 - コメント/ドキュメントは日本語、JSDocで記述（AGENTS.md準拠）。

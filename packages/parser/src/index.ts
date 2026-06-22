@@ -4,6 +4,8 @@ export { parseModule } from "./parser/index.ts";
 export type {
   AttributeGroupDefinition,
   BasicBlock,
+  ComdatDefinition,
+  DebugRecord,
   DiagnosticSeverity,
   EntryBase,
   FunctionDeclaration,
@@ -12,6 +14,7 @@ export type {
   IdentifierRef,
   Instruction,
   MetadataDefinition,
+  ModuleAsm,
   Module,
   NodeBase,
   ParseDiagnostic,
@@ -21,4 +24,5 @@ export type {
   TopLevelEntry,
   TypeDefinition,
   UnknownEntry,
+  UseListOrderDirective,
 } from "./ast/index.ts";

@@ -33,6 +33,7 @@ export const opcodeDocs = new Map<string, DocEntry>([
   ["mul", { label: "mul", markdown: "整数またはベクトル整数の乗算を行います。" }],
   ["load", { label: "load", markdown: "ポインタが指すメモリから値を読み込みます。" }],
   ["store", { label: "store", markdown: "値をポインタが指すメモリへ書き込みます。" }],
+  ["ptrtoaddr", { label: "ptrtoaddr", markdown: "ポインタのアドレス部分を整数型へ変換します。" }],
   ["call", { label: "call", markdown: "関数を呼び出し、戻り値があれば結果として使います。" }],
   ["ret", { label: "ret", markdown: "現在の関数から戻ります。" }],
   ["br", { label: "br", markdown: "条件付きまたは無条件で基本ブロックへ分岐します。" }],
@@ -61,6 +62,7 @@ export const typeDocs = new Map<string, DocEntry>([
   ["i8", { label: "i8", markdown: "8 bit の整数型です。" }],
   ["i32", { label: "i32", markdown: "32 bit の整数型です。" }],
   ["i64", { label: "i64", markdown: "64 bit の整数型です。" }],
+  ["b32", { label: "b32", markdown: "32 bit の byte type です。" }],
   ["float", { label: "float", markdown: "32 bit 浮動小数点型です。" }],
   ["double", { label: "double", markdown: "64 bit 浮動小数点型です。" }],
 ]);

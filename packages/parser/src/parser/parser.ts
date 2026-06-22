@@ -3,13 +3,14 @@
  *
  * 粒度は「構造重視・命令は粗く」（[plan](../../../../docs/plans/2026-06-22-parser-ast.md) 参照）。
  * トップレベル構造は型付きノードに分解するが、命令や型の内部は構造化せず、出現する識別子参照を
- * 収集するにとどめる。LLVM IR は実体として 1 行 1 文（`define` 本体のみ `{`...`}` ブロック）なので、
- * トップレベルは **行ベース** に走査する。1 行のパースに失敗しても診断を積んで次行へ進む
- * （エラー回復）ため、不正入力でも全体は止まらない。
+ * 収集するにとどめる。`define` 本体は `{`...`}` ブロックとして走査し、それ以外のトップレベルは
+ * 通常行単位だが、括弧が複数行にまたがる場合は閉じるまで 1 エントリとして集める。
+ * 1 エントリのパースに失敗しても診断を積んで次へ進む（エラー回復）ため、不正入力でも全体は止まらない。
  */
 import { type Range, type Token, tokenize } from "../lexer/index.ts";
 import type {
   BasicBlock,
+  DebugRecord,
   IdentifierRef,
   Instruction,
   Module,
@@ -123,6 +124,22 @@ export const parseModule = (source: string): ParseResult => {
     return { line: tokens.slice(start, end), next: end };
   };
 
+  /** `define` 以外のトップレベルエントリを、括弧が閉じる位置まで集める。 */
+  const collectTopLevelEntry = (start: number): { line: Token[]; next: number } => {
+    const line: Token[] = [];
+    let next = start;
+    let depth = 0;
+    do {
+      const collected = collectLine(next);
+      line.push(...collected.line);
+      for (const token of collected.line) {
+        depth = updateDelimiterDepth(depth, token.value);
+      }
+      next = collected.next;
+    } while (next < tokens.length && tokens[next]?.kind !== "Eof" && depth > 0);
+    return { line, next };
+  };
+
   /** `define` の本体（`{`...`}`）を読み、シグネチャ・本体・終端位置を返す。 */
   const collectFunction = (start: number): { signature: Token[]; body: Token[]; next: number } => {
     let open = start;
@@ -152,7 +169,7 @@ export const parseModule = (source: string): ParseResult => {
     const head = tokens[pos];
     if (head === undefined) break;
 
-    // `define` のみブロック単位、それ以外は行単位で集める。
+    // `define` のみブロック単位、それ以外は括弧の閉じる位置まで集める。
     if (head.kind === "Keyword" && head.value === "define") {
       const { signature, body, next } = collectFunction(pos);
       const defines = findToken(signature, "GlobalIdentifier");
@@ -178,7 +195,7 @@ export const parseModule = (source: string): ParseResult => {
       continue;
     }
 
-    const { line, next } = collectLine(pos);
+    const { line, next } = collectTopLevelEntry(pos);
     const range = spanOf(head, tokens[next - 1] ?? head);
     entries.push(parseLineEntry(head, line, range, diagnostics));
     pos = next;
@@ -191,7 +208,13 @@ export const parseModule = (source: string): ParseResult => {
 /** 関数本体トークンを基本ブロック列へ分解する。`Label` で新ブロックを開始する。 */
 const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
   const blocks: BasicBlock[] = [];
-  type Acc = { label?: IdentifierRef; instructions: Instruction[]; first: Token; last: Token };
+  type Acc = {
+    label?: IdentifierRef;
+    instructions: Instruction[];
+    debugRecords: DebugRecord[];
+    first: Token;
+    last: Token;
+  };
   let current: Acc | undefined;
 
   const flush = (): void => {
@@ -200,6 +223,7 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
       kind: "BasicBlock",
       ...(current.label ? { label: current.label } : {}),
       instructions: current.instructions,
+      ...(current.debugRecords.length > 0 ? { debugRecords: current.debugRecords } : {}),
       range: spanOf(current.first, current.last),
     });
     current = undefined;
@@ -216,11 +240,20 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
       current = {
         label: { kind: "LabelRef", name: head.value, range: head.range },
         instructions: [],
+        debugRecords: [],
         first: head,
         last: lineLast,
       };
+    } else if (head.kind === "DebugRecord") {
+      if (current === undefined) {
+        current = { instructions: [], debugRecords: [], first: head, last: lineLast };
+      }
+      current.debugRecords.push(makeDebugRecord(line));
+      current.last = lineLast;
     } else {
-      if (current === undefined) current = { instructions: [], first: head, last: lineLast };
+      if (current === undefined) {
+        current = { instructions: [], debugRecords: [], first: head, last: lineLast };
+      }
       current.instructions.push(makeInstruction(line));
       current.last = lineLast;
     }
@@ -228,6 +261,13 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
   }
   flush();
   return blocks;
+};
+
+/** 括弧トークンからネスト深さを更新する。 */
+const updateDelimiterDepth = (depth: number, value: string): number => {
+  if (value === "{" || value === "[" || value === "(") return depth + 1;
+  if (value === "}" || value === "]" || value === ")") return Math.max(0, depth - 1);
+  return depth;
 };
 
 /** `body` 内の `start` から同一行のトークンを集める（本体用の行分割）。 */
@@ -258,7 +298,19 @@ const makeInstruction = (line: readonly Token[]): Instruction => {
   };
 };
 
-/** `define` 以外の 1 行エントリを判別してノードを作る。 */
+/** 1 行分のトークンから debug record ノードを作る。 */
+const makeDebugRecord = (line: readonly Token[]): DebugRecord => {
+  const first = line[0] as Token;
+  const last = line[line.length - 1] ?? first;
+  return {
+    kind: "DebugRecord",
+    name: first.value,
+    operands: collectRefs(line),
+    range: spanOf(first, last),
+  };
+};
+
+/** `define` 以外のトップレベルエントリを判別してノードを作る。 */
 const parseLineEntry = (
   head: Token,
   line: readonly Token[],
@@ -289,6 +341,27 @@ const parseLineEntry = (
     };
   }
 
+  if (head.kind === "Keyword" && head.value === "module" && hasWord(line, "Keyword", "asm")) {
+    return {
+      kind: "ModuleAsm",
+      ...(firstString(line) ? { value: firstString(line) } : {}),
+      references: collectRefs(line),
+      range,
+    };
+  }
+
+  if (
+    head.kind === "Keyword" &&
+    (head.value === "uselistorder" || head.value === "uselistorder_bb")
+  ) {
+    return {
+      kind: "UseListOrderDirective",
+      directive: head.value,
+      references: collectRefs(line),
+      range,
+    };
+  }
+
   if (head.kind === "Keyword" && head.value === "declare") {
     const defines = findToken(line, "GlobalIdentifier");
     return {
@@ -314,6 +387,15 @@ const parseLineEntry = (
   if (head.kind === "GlobalIdentifier") {
     return {
       kind: "GlobalVariable",
+      defines: makeRef(head, undefined),
+      references: collectRefs(line, 0),
+      range,
+    };
+  }
+
+  if (head.kind === "ComdatIdentifier") {
+    return {
+      kind: "ComdatDefinition",
       defines: makeRef(head, undefined),
       references: collectRefs(line, 0),
       range,

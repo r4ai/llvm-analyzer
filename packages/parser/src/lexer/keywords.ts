@@ -57,6 +57,7 @@ const OPCODES = [
   "sitofp",
   "ptrtoint",
   "inttoptr",
+  "ptrtoaddr",
   "bitcast",
   "addrspacecast",
   "icmp",
@@ -137,6 +138,11 @@ const KEYWORDS = [
   "inteldialect",
   "distinct",
   "no_cfi",
+  "any",
+  "exactmatch",
+  "largest",
+  "noduplicates",
+  "samesize",
   // 修飾子
   "private",
   "internal",
@@ -330,6 +336,8 @@ const KEYWORD_KINDS: ReadonlyMap<string, TokenKind> = new Map<string, TokenKind>
 
 /** 整数型 `i1`, `i32`, `i128` … の判定パターン。 */
 const INTEGER_TYPE_PATTERN = /^i\d+$/;
+/** byte type `b1`, `b32`, `b128` … の判定パターン。 */
+const BYTE_TYPE_PATTERN = /^b\d+$/;
 
 /**
  * バーワード（記号なしの語）を {@link TokenKind} に分類する。
@@ -343,5 +351,6 @@ const INTEGER_TYPE_PATTERN = /^i\d+$/;
  */
 export const classifyBareword = (word: string): TokenKind => {
   if (INTEGER_TYPE_PATTERN.test(word)) return "Type";
+  if (BYTE_TYPE_PATTERN.test(word)) return "Type";
   return KEYWORD_KINDS.get(word) ?? "Identifier";
 };

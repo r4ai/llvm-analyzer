@@ -11,7 +11,7 @@
  * | `@`                | `GlobalIdentifier`（`@name` / `@1` / `@"..."`）        |
  * | `%`                | `LocalIdentifier`（`%name` / `%1` / `%"..."`）         |
  * | `!`                | `MetadataIdentifier`（`!name` / `!0`）。それ以外は `Punctuation` |
- * | `#`                | `AttributeGroup`（`#0`）。それ以外は `Punctuation`       |
+ * | `#`                | `AttributeGroup`（`#0`）または `DebugRecord`（`#dbg_*`）。それ以外は `Punctuation` |
  * | `$`                | `ComdatIdentifier`（`$name` / `$"..."`）。それ以外は `Punctuation` |
  * | 数字 / `+-` + 数字  | `Number`（整数・浮動小数・`0x` 16進/特殊float）            |
  * | 英字 `._`          | バーワード → 後続が `:` なら `Label`、                    |
@@ -25,6 +25,7 @@ export type TokenKind =
   | "LocalIdentifier"
   | "MetadataIdentifier"
   | "AttributeGroup"
+  | "DebugRecord"
   | "ComdatIdentifier"
   | "Label"
   | "Keyword"

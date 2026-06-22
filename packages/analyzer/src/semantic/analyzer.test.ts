@@ -66,6 +66,25 @@ describe("analyze: シンボル表とスコープ", () => {
       ["exit", "label", "@main", "label"],
     ]);
   });
+
+  it("関数シグネチャ内の名前付き型を parameter と誤登録しない", () => {
+    const source = [
+      "%Point = type { i32, i32 }",
+      "define void @use(%Point %p) {",
+      "entry:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.symbols.map((s) => [s.name, s.kind, s.scopeName, s.type])).toEqual([
+      ["%Point", "type", "module", undefined],
+      ["@use", "function", "module", undefined],
+      ["%p", "parameter", "@use", "%Point"],
+      ["entry", "label", "@use", "label"],
+    ]);
+    expect(model.diagnostics()).toEqual([]);
+  });
 });
 
 describe("analyze: 定義参照インデックス", () => {
@@ -145,6 +164,43 @@ describe("analyze: 診断", () => {
       ["undefined-reference", "`%absent` が定義されていません"],
     ]);
   });
+
+  it("同一命令内の自己参照を well-formedness 診断にする", () => {
+    const source = [
+      "define i32 @main() {",
+      "entry:",
+      "  %x = add i32 1, %x",
+      "  ret i32 %x",
+      "}",
+    ].join("\n");
+    const diagnostics = modelOf(source).diagnostics();
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: "self-reference-before-definition",
+        message: "`%x` は同じ命令内で定義前に参照されています",
+      }),
+    ]);
+  });
+
+  it("終端命令の後に通常命令が続くブロックを診断する", () => {
+    const source = [
+      "define void @f() {",
+      "entry:",
+      "  ret void",
+      "  call void @side_effect()",
+      "}",
+      "declare void @side_effect()",
+    ].join("\n");
+    const diagnostics = modelOf(source).diagnostics();
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: "instruction-after-terminator",
+        message: "終端命令 `ret` の後に命令があります",
+      }),
+    ]);
+  });
 });
 
 describe("analyze: 型解決と documentSymbol", () => {
@@ -161,6 +217,19 @@ describe("analyze: 型解決と documentSymbol", () => {
 
     expect(model.symbolAt(posOf(source, "%loaded"))?.type).toBe("i32");
     expect(model.symbolAt(posOf(source, "%sum"))?.type).toBe("i32");
+  });
+
+  it("ptrtoaddr などの cast 系命令は to の後の型を結果型として推定する", () => {
+    const source = [
+      "define i64 @addr(ptr %p) {",
+      "entry:",
+      "  %addr = ptrtoaddr ptr %p to i64",
+      "  ret i64 %addr",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.symbolAt(posOf(source, "%addr"))?.type).toBe("i64");
   });
 
   it("documentSymbols はトップレベルと関数子要素を返す", () => {

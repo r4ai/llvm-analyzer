@@ -79,6 +79,25 @@ export interface GlobalVariable extends EntryBase {
   readonly defines: IdentifierRef;
 }
 
+/** `$name = comdat SelectionKind`。`defines` は comdat 名。 */
+export interface ComdatDefinition extends EntryBase {
+  readonly kind: "ComdatDefinition";
+  readonly defines: IdentifierRef;
+}
+
+/** `module asm "..."`。 */
+export interface ModuleAsm extends EntryBase {
+  readonly kind: "ModuleAsm";
+  /** 引用符を含む asm 文字列。無ければ undefined。 */
+  readonly value?: string;
+}
+
+/** `uselistorder` / `uselistorder_bb` 指令。 */
+export interface UseListOrderDirective extends EntryBase {
+  readonly kind: "UseListOrderDirective";
+  readonly directive: "uselistorder" | "uselistorder_bb";
+}
+
 /** `declare ... @name(...)`。`defines` は宣言される関数名。 */
 export interface FunctionDeclaration extends EntryBase {
   readonly kind: "FunctionDeclaration";
@@ -117,6 +136,9 @@ export type TopLevelEntry =
   | TargetDefinition
   | TypeDefinition
   | GlobalVariable
+  | ComdatDefinition
+  | ModuleAsm
+  | UseListOrderDirective
   | FunctionDeclaration
   | FunctionDefinition
   | AttributeGroupDefinition
@@ -132,6 +154,8 @@ export interface BasicBlock extends NodeBase {
   /** ラベル定義（`name:` の `name`）。暗黙ブロックなら undefined。 */
   readonly label?: IdentifierRef;
   readonly instructions: readonly Instruction[];
+  /** 命令列へ混在する `#dbg_*` レコード。命令ではないため別に保持する。 */
+  readonly debugRecords?: readonly DebugRecord[];
 }
 
 /**
@@ -145,6 +169,16 @@ export interface Instruction extends NodeBase {
   /** オペコード（`add` / `call` / `ret` …）。判別できなければ undefined。 */
   readonly opcode?: string;
   /** 命令内に出現する識別子参照（`result` は含めない）。 */
+  readonly operands: readonly IdentifierRef[];
+}
+
+/**
+ * `#dbg_value(...)` などの debug record。
+ * LLVM IR 上は命令列に混在するが、命令ではないため {@link Instruction} とは分けて保持する。
+ */
+export interface DebugRecord extends NodeBase {
+  readonly kind: "DebugRecord";
+  readonly name: string;
   readonly operands: readonly IdentifierRef[];
 }
 

@@ -37,6 +37,13 @@ describe("tokenize: コメント", () => {
     expect(kinds("; hello world")).toEqual([["Comment", "; hello world"]]);
   });
 
+  it("/* ... */ を Comment とする", () => {
+    expect(kinds("/* hello\nworld */ ret")).toEqual([
+      ["Comment", "/* hello\nworld */"],
+      ["Opcode", "ret"],
+    ]);
+  });
+
   it("コメントは改行を含まない", () => {
     expect(kinds("; a\nret")).toEqual([
       ["Comment", "; a"],
@@ -89,6 +96,10 @@ describe("tokenize: 識別子（接頭辞付き）", () => {
     ]);
   });
 
+  it("debug record #dbg_*", () => {
+    expect(kinds("#dbg_value")).toEqual([["DebugRecord", "#dbg_value"]]);
+  });
+
   it("数字を伴わない # は Punctuation", () => {
     expect(kinds("# x")).toEqual([
       ["Punctuation", "#"],
@@ -113,6 +124,13 @@ describe("tokenize: ラベル", () => {
   it("name: をラベル定義名として Label にする（: は別トークン）", () => {
     expect(kinds("entry:")).toEqual([
       ["Label", "entry"],
+      ["Punctuation", ":"],
+    ]);
+  });
+
+  it("0: のような数値ラベルを Label にする", () => {
+    expect(kinds("0:")).toEqual([
+      ["Label", "0"],
       ["Punctuation", ":"],
     ]);
   });
@@ -146,13 +164,13 @@ describe("tokenize: バーワードの分類", () => {
   });
 
   it("命令オペコードは Opcode", () => {
-    for (const w of ["add", "ret", "getelementptr", "icmp", "call"]) {
+    for (const w of ["add", "ret", "getelementptr", "icmp", "call", "ptrtoaddr"]) {
       expect(firstKind(w)).toBe("Opcode");
     }
   });
 
   it("型キーワードと i<N> は Type", () => {
-    for (const w of ["void", "ptr", "float", "double", "i1", "i32", "i128"]) {
+    for (const w of ["void", "ptr", "float", "double", "i1", "i32", "i128", "b1", "b32"]) {
       expect(firstKind(w)).toBe("Type");
     }
   });
@@ -190,9 +208,19 @@ describe("tokenize: 数値", () => {
   });
 
   it("16進・特殊float 0x...", () => {
-    expect(kinds("0x7f 0xK4000")).toEqual([
+    expect(kinds("0x7f 0xK4000 s0x8000 u0x8000 0x1.8p+1")).toEqual([
       ["Number", "0x7f"],
       ["Number", "0xK4000"],
+      ["Number", "s0x8000"],
+      ["Number", "u0x8000"],
+      ["Number", "0x1.8p+1"],
+    ]);
+  });
+
+  it("特殊浮動小数リテラル", () => {
+    expect(kinds("+inf -qnan")).toEqual([
+      ["Number", "+inf"],
+      ["Number", "-qnan"],
     ]);
   });
 

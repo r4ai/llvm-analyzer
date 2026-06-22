@@ -60,10 +60,41 @@ const MODULE_REF_KINDS = new Set<IdentifierRef["kind"]>([
   "ComdatRef",
 ]);
 
-const TYPE_PATTERN =
-  /(?:^|[\s,(])((?:i[1-9][0-9]*)|ptr|void|label|metadata|float|double|half|bfloat|x86_fp80|fp128|ppc_fp128)\s*$/u;
-const LEADING_TYPE_PATTERN =
-  /^\s*((?:i[1-9][0-9]*)|ptr|void|label|metadata|float|double|half|bfloat|x86_fp80|fp128|ppc_fp128)\b/u;
+const TYPE_ATOM = String.raw`(?:(?:i\d+)|(?:b\d+)|ptr|void|label|metadata|token|float|double|half|bfloat|x86_fp80|fp128|ppc_fp128|x86_mmx|x86_amx|%[-A-Za-z$._0-9]+|%"[^"]+")`;
+const TYPE_PATTERN = new RegExp(String.raw`(?:^|[\s,(])(${TYPE_ATOM})\s*$`, "u");
+const LEADING_TYPE_PATTERN = new RegExp(String.raw`^\s*(${TYPE_ATOM})\b`, "u");
+const TO_TYPE_PATTERN = new RegExp(String.raw`\bto\s+(${TYPE_ATOM})\b`, "u");
+
+const CONVERSION_OPCODES = new Set([
+  "trunc",
+  "zext",
+  "sext",
+  "fptrunc",
+  "fpext",
+  "fptoui",
+  "fptosi",
+  "uitofp",
+  "sitofp",
+  "ptrtoint",
+  "inttoptr",
+  "ptrtoaddr",
+  "bitcast",
+  "addrspacecast",
+]);
+
+const TERMINATOR_OPCODES = new Set([
+  "ret",
+  "br",
+  "switch",
+  "indirectbr",
+  "invoke",
+  "callbr",
+  "resume",
+  "catchswitch",
+  "catchret",
+  "cleanupret",
+  "unreachable",
+]);
 
 /**
  * AST から意味モデルを構築する純粋関数。
@@ -178,7 +209,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     if (entry.kind !== "FunctionDefinition") continue;
     const functionScope = makeFunctionScope(entry);
     functionScopes.set(entry.defines.name, functionScope);
-    for (const ref of entry.references.filter((r) => r.kind === "LocalRef")) {
+    for (const ref of entry.references.filter((r) => isFunctionParameterRef(options.source, r))) {
       addSymbol(functionScope, ref, "parameter", inferTypeBefore(options.source, ref));
     }
     for (const block of entry.blocks) {
@@ -194,11 +225,18 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
         }
       }
     }
+    validateFunctionBody(entry, diagnostics);
   }
 
   for (const entry of ast.entries) {
     if (entry.kind !== "FunctionDefinition") {
-      resolveRefs(entry.references, moduleScope, undefined, addReference, addUndefined);
+      resolveRefs(
+        resolvableTopLevelRefs(entry, moduleScope),
+        moduleScope,
+        undefined,
+        addReference,
+        addUndefined,
+      );
       continue;
     }
     const functionScope = functionScopes.get(entry.defines.name);
@@ -206,6 +244,9 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     for (const block of entry.blocks) {
       for (const instruction of block.instructions) {
         resolveRefs(instruction.operands, moduleScope, functionScope, addReference, addUndefined);
+      }
+      for (const debugRecord of block.debugRecords ?? []) {
+        resolveRefs(debugRecord.operands, moduleScope, functionScope, addReference, addUndefined);
       }
     }
   }
@@ -229,6 +270,51 @@ const makeFunctionScope = (entry: FunctionDefinition): Scope => ({
 });
 
 /**
+ * 関数シグネチャ上の `%` 参照が実引数名かを判定する。
+ *
+ * @param source 元ソース。無ければ従来どおり `LocalRef` を引数候補にする。
+ * @param ref 判定対象の参照。
+ * @returns 関数スコープへ parameter として登録すべきなら true。
+ *
+ * @remarks
+ * `define void @f(%T %x)` では `%T` が名前付き型、`%x` が値名である。
+ * parser は型構文を構造化しないため、直後の非空白文字と直前の型トークンから保守的に判定する。
+ */
+const isFunctionParameterRef = (source: string | undefined, ref: IdentifierRef): boolean => {
+  if (ref.kind !== "LocalRef") return false;
+  if (!source) return true;
+  const after = source.slice(ref.range.end.offset).trimStart();
+  if (after.startsWith("%") || after.startsWith("@")) return false;
+  if (after.startsWith("*")) {
+    const afterPointer = after.slice(1).trimStart();
+    if (afterPointer.startsWith("%") || afterPointer.startsWith("@")) return false;
+  }
+  return inferTypeBefore(source, ref) !== undefined;
+};
+
+/**
+ * トップレベルエントリで診断対象にする参照を絞る。
+ *
+ * @param entry parser が返したトップレベルエントリ。
+ * @param moduleScope モジュールスコープ。
+ * @returns 未定義診断の対象にする参照列。
+ *
+ * @remarks
+ * `uselistorder` は関数ローカル値やラベルをトップレベルで参照できる。
+ * 現在の analyzer は指令から関数スコープを復元しないため、モジュールスコープで解けない `%` 参照だけ診断対象から外す。
+ */
+const resolvableTopLevelRefs = (
+  entry: TopLevelEntry,
+  moduleScope: Scope,
+): readonly IdentifierRef[] => {
+  if (entry.kind !== "UseListOrderDirective") return entry.references;
+  return entry.references.filter((ref) => {
+    if (ref.kind !== "LocalRef" && ref.kind !== "LabelRef") return true;
+    return moduleScope.symbols.has(ref.name);
+  });
+};
+
+/**
  * トップレベルエントリ種別を analyzer のシンボル種別へ写像する。
  *
  * @param entry parser が返したトップレベルエントリ。
@@ -238,6 +324,8 @@ const symbolKindOfEntry = (entry: TopLevelEntry): SymbolKind => {
   switch (entry.kind) {
     case "GlobalVariable":
       return "global";
+    case "ComdatDefinition":
+      return "comdat";
     case "FunctionDeclaration":
     case "FunctionDefinition":
       return "function";
@@ -249,6 +337,50 @@ const symbolKindOfEntry = (entry: TopLevelEntry): SymbolKind => {
       return "attributeGroup";
     default:
       return "global";
+  }
+};
+
+/**
+ * 粗い命令 AST だけで確実に分かる well-formedness を診断する。
+ *
+ * @param entry 検証対象の関数定義。
+ * @param diagnostics 診断の追加先。
+ *
+ * @remarks
+ * dominance や型整合性の完全検証は LLVM verifier の責務であり、この analyzer では扱わない。
+ * ここでは同一命令内の自己参照と、終端命令後の通常命令だけを検出する。
+ */
+const validateFunctionBody = (
+  entry: FunctionDefinition,
+  diagnostics: AnalyzerDiagnostic[],
+): void => {
+  for (const block of entry.blocks) {
+    let terminator: Instruction | undefined;
+    for (const instruction of block.instructions) {
+      if (terminator) {
+        diagnostics.push({
+          code: "instruction-after-terminator",
+          range: instruction.range,
+          message: `終端命令 \`${terminator.opcode ?? ""}\` の後に命令があります`,
+          severity: "error",
+        });
+      }
+      if (instruction.result) {
+        for (const operand of instruction.operands) {
+          if (operand.kind === "LocalRef" && operand.name === instruction.result.name) {
+            diagnostics.push({
+              code: "self-reference-before-definition",
+              range: operand.range,
+              message: `\`${operand.name}\` は同じ命令内で定義前に参照されています`,
+              severity: "error",
+            });
+          }
+        }
+      }
+      if (!terminator && instruction.opcode && TERMINATOR_OPCODES.has(instruction.opcode)) {
+        terminator = instruction;
+      }
+    }
   }
 };
 
@@ -334,6 +466,9 @@ const inferInstructionResultType = (
   );
   if (!opcodeMatch) return undefined;
   const afterOpcode = line.slice(opcodeMatch.index + opcodeMatch[0].length);
+  if (CONVERSION_OPCODES.has(instruction.opcode)) {
+    return afterOpcode.match(TO_TYPE_PATTERN)?.[1];
+  }
   return afterOpcode.match(LEADING_TYPE_PATTERN)?.[1];
 };
 
