@@ -28,17 +28,23 @@ export interface DocEntry {
  * @public
  */
 export const opcodeDocs = new Map<string, DocEntry>([
-  ["add", { label: "add", markdown: "整数またはベクトル整数の加算を行います。" }],
-  ["sub", { label: "sub", markdown: "整数またはベクトル整数の減算を行います。" }],
-  ["mul", { label: "mul", markdown: "整数またはベクトル整数の乗算を行います。" }],
-  ["load", { label: "load", markdown: "ポインタが指すメモリから値を読み込みます。" }],
-  ["store", { label: "store", markdown: "値をポインタが指すメモリへ書き込みます。" }],
-  ["ptrtoaddr", { label: "ptrtoaddr", markdown: "ポインタのアドレス部分を整数型へ変換します。" }],
-  ["call", { label: "call", markdown: "関数を呼び出し、戻り値があれば結果として使います。" }],
-  ["ret", { label: "ret", markdown: "現在の関数から戻ります。" }],
-  ["br", { label: "br", markdown: "条件付きまたは無条件で基本ブロックへ分岐します。" }],
-  ["phi", { label: "phi", markdown: "制御フローの合流点で SSA 値を選択します。" }],
-  ["alloca", { label: "alloca", markdown: "現在の関数のスタックフレームにメモリを確保します。" }],
+  ["add", { label: "add", markdown: "Adds integer or integer vector values." }],
+  ["sub", { label: "sub", markdown: "Subtracts integer or integer vector values." }],
+  ["mul", { label: "mul", markdown: "Multiplies integer or integer vector values." }],
+  ["load", { label: "load", markdown: "Reads a value from memory through a pointer." }],
+  ["store", { label: "store", markdown: "Writes a value to memory through a pointer." }],
+  [
+    "ptrtoaddr",
+    { label: "ptrtoaddr", markdown: "Converts the address part of a pointer to an integer." },
+  ],
+  ["call", { label: "call", markdown: "Calls a function and uses its return value when present." }],
+  ["ret", { label: "ret", markdown: "Returns from the current function." }],
+  ["br", { label: "br", markdown: "Branches to basic blocks, conditionally or unconditionally." }],
+  ["phi", { label: "phi", markdown: "Selects an SSA value at a control-flow merge point." }],
+  [
+    "alloca",
+    { label: "alloca", markdown: "Allocates memory in the current function stack frame." },
+  ],
 ]);
 
 /**
@@ -54,15 +60,15 @@ export const opcodeDocs = new Map<string, DocEntry>([
  * @public
  */
 export const typeDocs = new Map<string, DocEntry>([
-  ["void", { label: "void", markdown: "値を返さない型です。" }],
-  ["ptr", { label: "ptr", markdown: "LLVM の opaque pointer 型です。" }],
-  ["label", { label: "label", markdown: "基本ブロックを指すラベル型です。" }],
-  ["metadata", { label: "metadata", markdown: "デバッグ情報などのメタデータ型です。" }],
-  ["i1", { label: "i1", markdown: "1 bit の整数型です。条件値としてよく使われます。" }],
-  ["i8", { label: "i8", markdown: "8 bit の整数型です。" }],
-  ["i32", { label: "i32", markdown: "32 bit の整数型です。" }],
-  ["i64", { label: "i64", markdown: "64 bit の整数型です。" }],
-  ["b32", { label: "b32", markdown: "32 bit の byte type です。" }],
-  ["float", { label: "float", markdown: "32 bit 浮動小数点型です。" }],
-  ["double", { label: "double", markdown: "64 bit 浮動小数点型です。" }],
+  ["void", { label: "void", markdown: "Type with no runtime value." }],
+  ["ptr", { label: "ptr", markdown: "LLVM opaque pointer type." }],
+  ["label", { label: "label", markdown: "Type of a basic block label." }],
+  ["metadata", { label: "metadata", markdown: "Type for debug info and other metadata." }],
+  ["i1", { label: "i1", markdown: "1-bit integer type, commonly used for conditions." }],
+  ["i8", { label: "i8", markdown: "8-bit integer type." }],
+  ["i32", { label: "i32", markdown: "32-bit integer type." }],
+  ["i64", { label: "i64", markdown: "64-bit integer type." }],
+  ["b32", { label: "b32", markdown: "32-bit byte type." }],
+  ["float", { label: "float", markdown: "32-bit floating-point type." }],
+  ["double", { label: "double", markdown: "64-bit floating-point type." }],
 ]);

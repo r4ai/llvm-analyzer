@@ -58,12 +58,51 @@ const markdownValue = (contents: HoverContents | undefined): string => {
 describe("LSP 機能アダプタ", () => {
   const snapshot = makeDocumentSnapshot("file:///hello.ll", source);
 
-  it("hover はシンボルの種類と型を返す", () => {
+  it("hover はシンボルの種類・型・定義元を英語で返す", () => {
     const hover = getHover(snapshot, { line: 4, character: 4 });
 
     expect(hover?.contents).toEqual({
       kind: "markdown",
-      value: ["`%sum`", "", "種類: local", "型: i32"].join("\n"),
+      value: [
+        "```llvm",
+        "%sum: i32",
+        "```",
+        "",
+        "| Property | Value |",
+        "| --- | --- |",
+        "| Kind | `local` |",
+        "| Type | `i32` |",
+        "| Scope | `@main` |",
+        "",
+        "Definition:",
+        "```llvm",
+        "%sum = add i32 %x, 1",
+        "```",
+      ].join("\n"),
+    });
+  });
+
+  it("hover は関数引数にシグネチャを表示する", () => {
+    const hover = getHover(snapshot, { line: 4, character: 18 });
+
+    expect(hover?.contents).toEqual({
+      kind: "markdown",
+      value: [
+        "```llvm",
+        "%x: i32",
+        "```",
+        "",
+        "| Property | Value |",
+        "| --- | --- |",
+        "| Kind | `parameter` |",
+        "| Type | `i32` |",
+        "| Scope | `@main` |",
+        "",
+        "Signature:",
+        "```llvm",
+        "define i32 @main(i32 %x) {",
+        "```",
+      ].join("\n"),
     });
   });
 
@@ -208,11 +247,11 @@ describe("LSP 機能アダプタ", () => {
 
     expect(getHover(snapshot, { line: 4, character: 9 })?.contents).toMatchObject({
       kind: "markdown",
-      value: expect.stringContaining("加算"),
+      value: expect.stringContaining("Adds integer or integer vector values."),
     });
     expect(getHover(snapshot, { line: 7, character: 6 })?.contents).toMatchObject({
       kind: "markdown",
-      value: expect.stringContaining("32 bit"),
+      value: expect.stringContaining("32-bit integer type."),
     });
   });
 
@@ -225,9 +264,9 @@ describe("LSP 機能アダプタ", () => {
 
     expect(hover?.contents).toMatchObject({
       kind: "markdown",
-      value: expect.stringContaining("種類: function"),
+      value: expect.stringContaining("| Kind | `function` |"),
     });
-    expect(markdownValue(hover?.contents)).not.toContain("加算");
+    expect(markdownValue(hover?.contents)).not.toContain("Adds integer");
   });
 
   it("references は includeDeclaration=false で定義位置を除外する", () => {

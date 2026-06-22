@@ -145,12 +145,10 @@ export const getHover = (snapshot: DocumentSnapshot, position: LspPosition): Hov
   const occurrence = symbolOccurrenceAt(snapshot, position);
   if (!occurrence) return docHoverAt(snapshot, position);
   const { symbol, ref } = occurrence;
-  const lines = [`\`${symbol.name}\``, "", `種類: ${symbol.kind}`];
-  if (symbol.type) lines.push(`型: ${symbol.type}`);
   return {
     contents: {
       kind: MarkupKind.Markdown,
-      value: lines.join("\n"),
+      value: symbolHoverMarkdown(snapshot, symbol),
     },
     range: toLspRange(ref.range),
   };
@@ -554,6 +552,37 @@ const symbolOccurrenceAt = (
     .find((candidate) => containsRange(candidate.range, parserPosition));
   return ref ? { symbol, ref } : undefined;
 };
+
+const symbolHoverMarkdown = (snapshot: DocumentSnapshot, symbol: SemanticSymbol): string => {
+  const lines = [
+    "```llvm",
+    symbolHoverTitle(symbol),
+    "```",
+    "",
+    "| Property | Value |",
+    "| --- | --- |",
+    `| Kind | \`${symbol.kind}\` |`,
+  ];
+  if (symbol.type) lines.push(`| Type | \`${symbol.type}\` |`);
+  if (symbol.scopeName !== "module") lines.push(`| Scope | \`${symbol.scopeName}\` |`);
+  const sourceLine = sourceLineAt(snapshot, symbol.definition.range.start.line).trim();
+  if (sourceLine) {
+    lines.push("", `${symbolHoverContextLabel(symbol)}:`, "```llvm", sourceLine, "```");
+  }
+  return lines.join("\n");
+};
+
+const symbolHoverTitle = (symbol: SemanticSymbol): string =>
+  symbol.type ? `${symbol.name}: ${symbol.type}` : symbol.name;
+
+const symbolHoverContextLabel = (symbol: SemanticSymbol): string =>
+  symbol.kind === "parameter" || symbol.kind === "function" ? "Signature" : "Definition";
+
+const sourceLineAt = (snapshot: DocumentSnapshot, line: number): string =>
+  snapshot.document.getText({
+    start: { line, character: 0 },
+    end: { line: line + 1, character: 0 },
+  });
 
 const docHoverAt = (snapshot: DocumentSnapshot, position: LspPosition): Hover | undefined => {
   const token = tokenAt(snapshot, position);

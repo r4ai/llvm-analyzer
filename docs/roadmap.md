@@ -83,6 +83,10 @@
   - fixture workspace を起動し、completion / documentSymbol / references / foldingRange / documentLink を VSCode command 経由で確認した
   - workspace symbol / call hierarchy / diagnostics / quick fix / format の代表経路を extension host 上で確認した
   - 外部 verifier は fixture 設定で無効化し、環境差分を避けた
+- [x] **Hover UX 改善**（2026-06-23）
+  - SSA 値 hover を英語の宣言形 markdown にし、Kind / Type / Scope を表で表示する
+  - parameter は関数シグネチャ、local は定義命令をコードブロックで表示する
+  - opcode / type hover 辞書の利用者向け本文を英語へ揃えた
 
 ## メモ
 

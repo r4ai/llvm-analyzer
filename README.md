@@ -11,17 +11,17 @@
 
 ### 機能
 
-| 分類         | 機能                                                                   |
-| ------------ | ---------------------------------------------------------------------- |
-| 表示         | `.ll` ファイルのシンタックスハイライト、Semantic Tokens、Folding Range |
-| 読解         | hover、定義ジャンプ、参照検索、Document Symbol、Workspace Symbol       |
-| 編集         | 補完、Rename、Format、Range Format                                     |
-| 診断         | parser 診断、analyzer 診断、外部 LLVM verifier 診断                    |
-| 補助表示     | SSA 値の推定型を表示する Inlay Hints                                   |
-| ファイル参照 | `source_filename` と `!DIFile` から実在ファイルを開く Document Link    |
-| 呼び出し関係 | `call`、`invoke`、`callbr` の直接呼び出しを辿る Call Hierarchy         |
-| 制御フロー   | 現在関数の Control Flow Graph を Mermaid として表示するコマンド        |
-| Quick Fix    | 未定義の近いグローバル名やラベル名への置換、終端命令後の命令削除       |
+| 分類         | 機能                                                                    |
+| ------------ | ----------------------------------------------------------------------- |
+| 表示         | `.ll` ファイルのシンタックスハイライト、Semantic Tokens、Folding Range  |
+| 読解         | 宣言形 hover、定義ジャンプ、参照検索、Document Symbol、Workspace Symbol |
+| 編集         | 補完、Rename、Format、Range Format                                      |
+| 診断         | parser 診断、analyzer 診断、外部 LLVM verifier 診断                     |
+| 補助表示     | SSA 値の推定型を表示する Inlay Hints                                    |
+| ファイル参照 | `source_filename` と `!DIFile` から実在ファイルを開く Document Link     |
+| 呼び出し関係 | `call`、`invoke`、`callbr` の直接呼び出しを辿る Call Hierarchy          |
+| 制御フロー   | 現在関数の Control Flow Graph を Mermaid として表示するコマンド         |
+| Quick Fix    | 未定義の近いグローバル名やラベル名への置換、終端命令後の命令削除        |
 
 ### 対応する LLVM IR
 

@@ -603,7 +603,7 @@ describe("analyze: 直接呼び出し抽出", () => {
 describe("docs", () => {
   it("オペコード・型のドキュメント辞書を持つ", () => {
     expect(opcodeDocs.get("add")?.label).toBe("add");
-    expect(opcodeDocs.get("call")?.markdown).toContain("関数");
+    expect(opcodeDocs.get("call")?.markdown).toContain("Calls a function");
     expect(typeDocs.get("ptr")?.markdown).toContain("opaque pointer");
     expect(typeDocs.get("i32")?.label).toBe("i32");
   });
