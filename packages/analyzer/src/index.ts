@@ -4,6 +4,7 @@ export type {
   AnalyzeOptions,
   AnalyzerDiagnostic,
   AnalyzerDiagnosticCode,
+  DirectCall,
   DocumentSymbol,
   SemanticModel,
   SemanticSymbol,

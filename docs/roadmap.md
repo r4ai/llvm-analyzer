@@ -52,9 +52,9 @@
 - [x] **Workspace Symbols**（2026-06-22）
   - ワークスペース内の `.ll` ファイルを索引化し、`@function` / `@global` / `%type` / `!metadata` / 属性グループなどを検索可能にする
   - ファイル変更・削除時に URI 単位で索引を更新する
-- [ ] **Call Hierarchy**
+- [x] **Call Hierarchy**（2026-06-22）
   - `call` / `invoke` / `callbr` の直接呼び出しを抽出し、callers / callees を返す
-  - Workspace Symbols の索引を再利用して複数ファイルの直接呼び出しを扱う
+  - Workspace Symbols と同じファイル単位索引を使って複数ファイルの直接呼び出しを扱う
 - [ ] **Document Link**
   - `source_filename` と debug metadata のファイルパス候補を document link として返す
   - ワークスペース相対パスと絶対パスを安全に解決する

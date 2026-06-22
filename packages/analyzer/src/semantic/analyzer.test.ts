@@ -405,6 +405,35 @@ describe("analyze: 型解決と documentSymbol", () => {
   });
 });
 
+describe("analyze: 直接呼び出し抽出", () => {
+  it("call / invoke / callbr の直接呼び出し先を抽出する", () => {
+    const source = [
+      "declare void @callee()",
+      "declare void @target()",
+      "define void @caller(ptr %fp) {",
+      "entry:",
+      "  call void @callee()",
+      "  invoke void @target() to label %ok unwind label %bad",
+      "ok:",
+      "  callbr void @target() to label %done [label %bad]",
+      "bad:",
+      "  call void %fp(ptr @callee)",
+      "  call void bitcast (ptr @target to ptr)()",
+      "  br label %done",
+      "done:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const calls = modelOf(source).directCalls();
+
+    expect(calls.map((call) => [call.caller.name, call.callee.name])).toEqual([
+      ["@caller", "@callee"],
+      ["@caller", "@target"],
+      ["@caller", "@target"],
+    ]);
+  });
+});
+
 describe("docs", () => {
   it("オペコード・型のドキュメント辞書を持つ", () => {
     expect(opcodeDocs.get("add")?.label).toBe("add");

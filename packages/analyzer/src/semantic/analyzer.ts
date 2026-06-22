@@ -23,6 +23,7 @@ import type {
 import type {
   AnalyzeOptions,
   AnalyzerDiagnostic,
+  DirectCall,
   DocumentSymbol,
   SemanticModel,
   SemanticSymbol,
@@ -117,6 +118,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   const symbols: MutableSymbol[] = [];
   const occurrences: Occurrence[] = [];
   const diagnostics: AnalyzerDiagnostic[] = [];
+  const directCalls: DirectCall[] = [];
   const reportUndefinedReferences = options.reportUndefinedReferences ?? true;
 
   /**
@@ -222,6 +224,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
         }
       }
     }
+    directCalls.push(...extractDirectCalls(entry, options.source));
     validateFunctionBody(entry, diagnostics);
   }
 
@@ -283,7 +286,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     }
   }
 
-  return makeModel(symbols, occurrences, diagnostics, ast.entries, functionScopes);
+  return makeModel(symbols, occurrences, diagnostics, ast.entries, functionScopes, directCalls);
 };
 
 /**
@@ -422,6 +425,42 @@ const validateFunctionBody = (
       }
     }
   }
+};
+
+const CALL_OPCODES = new Set(["call", "invoke", "callbr"]);
+
+/** 関数本体から直接呼び出し先 `@callee` を抽出する。 */
+const extractDirectCalls = (
+  entry: FunctionDefinition,
+  source: string | undefined,
+): DirectCall[] => {
+  const calls: DirectCall[] = [];
+  for (const block of entry.blocks) {
+    for (const instruction of block.instructions) {
+      if (!instruction.opcode || !CALL_OPCODES.has(instruction.opcode)) continue;
+      const callee = directCalleeRef(source, instruction);
+      if (!callee) continue;
+      calls.push({ caller: entry.defines, callee, range: instruction.range });
+    }
+  }
+  return calls;
+};
+
+const directCalleeRef = (
+  source: string | undefined,
+  instruction: Instruction,
+): IdentifierRef | undefined => {
+  if (!source) return undefined;
+  const line = source.slice(instruction.range.start.offset, instruction.range.end.offset);
+  const tokens = tokenize(line).filter((token) => token.kind !== "Eof" && token.kind !== "Comment");
+  const directGlobal = tokens.find(
+    (token, index) => token.kind === "GlobalIdentifier" && tokens[index + 1]?.value === "(",
+  );
+  if (!directGlobal) return undefined;
+  const absoluteStart = instruction.range.start.offset + directGlobal.range.start.offset;
+  return instruction.operands.find(
+    (operand) => operand.kind === "GlobalRef" && operand.range.start.offset === absoluteStart,
+  );
 };
 
 /**
@@ -730,6 +769,7 @@ const indexOfWord = (source: string, word: string): number => {
  * @param diagnostics 解析中に収集した意味診断。
  * @param entries documentSymbol 構築に使うトップレベルエントリ列。
  * @param functionScopes 関数名から関数スコープへの対応。
+ * @param directCalls 関数本体から抽出した直接呼び出し。
  * @returns 公開用の意味モデル。
  *
  * @remarks
@@ -742,6 +782,7 @@ const makeModel = (
   diagnostics: readonly AnalyzerDiagnostic[],
   entries: readonly TopLevelEntry[],
   functionScopes: ReadonlyMap<string, Scope>,
+  directCalls: readonly DirectCall[],
 ): SemanticModel => {
   const symbols = mutableSymbols.map((symbol) => freezeSymbol(symbol));
   const byId = new Map(symbols.map((symbol) => [symbol.id, symbol]));
@@ -762,6 +803,7 @@ const makeModel = (
     },
     referencesOf: (symbolId) => mutableById.get(symbolId)?.references.toSorted(compareRefs) ?? [],
     documentSymbols: () => makeDocumentSymbols(entries, functionScopes),
+    directCalls: () => directCalls,
     diagnostics: () => diagnostics,
   };
 };

@@ -72,7 +72,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   - `foldingRange` ← 関数/ブロック範囲
   - `inlayHint` ← 型構文モデル + SSA値の推定型。初期実装では parameter / local の定義名直後に `: type` を表示し、`llvm-analyzer.inlayHints.types.enabled` で切り替える。
   - `workspace/symbol` ← ワークスペース索引。`@function` / `@global` / `%type` / `!metadata` / 属性グループなどのトップレベル定義を返す
-  - `callHierarchy/*` ← 直接呼び出し索引
+  - `callHierarchy/*` ← 直接呼び出し索引。`call` / `invoke` / `callbr` の `@callee` だけを扱い、間接呼び出しは解決しない
   - `documentLink` ← `source_filename` / debug metadata のファイル参照候補
   - `formatting` / `rangeFormatting` ← AST を壊さない空白・インデント edit
   - `codeAction` ← stable diagnostic code と安全な修正候補

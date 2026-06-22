@@ -146,6 +146,16 @@ export interface DocumentSymbol {
   readonly children?: readonly DocumentSymbol[];
 }
 
+/** 関数内に現れる直接呼び出し。 */
+export interface DirectCall {
+  /** 呼び出し元関数の定義。 */
+  readonly caller: IdentifierRef;
+  /** `call` / `invoke` / `callbr` で直接参照された呼び出し先関数。 */
+  readonly callee: IdentifierRef;
+  /** 呼び出し命令全体の範囲。 */
+  readonly range: Range;
+}
+
 /**
  * 解析済み意味モデル。
  *
@@ -199,6 +209,12 @@ export interface SemanticModel {
    * @returns トップレベル定義を親にした documentSymbol 互換の階層。
    */
   documentSymbols(): readonly DocumentSymbol[];
+  /**
+   * 関数内の直接呼び出しを返す。
+   *
+   * @returns `call` / `invoke` / `callbr` から静的に分かる `@callee` の列。
+   */
+  directCalls(): readonly DirectCall[];
   /**
    * 解析時に収集した意味診断を返す。
    *

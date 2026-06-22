@@ -11,6 +11,7 @@ LLVM IR (`.ll`) 向けの VSCode 拡張機能。
 - parser / analyzer / external verifier ごとの診断有効化と重大度設定。
 - SSA 値の推定型を表示する Inlay Hints。
 - ワークスペース内の `.ll` ファイルを対象にした Workspace Symbols。
+- `call` / `invoke` / `callbr` の直接呼び出しを辿る Call Hierarchy。
 
 ## 設定
 

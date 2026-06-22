@@ -11,6 +11,7 @@ PATH 上に `llvm-as` がある場合は、編集停止後に外部 LLVM verifie
 parser / analyzer / external verifier の診断は、ソースごとに有効化と重大度を設定できる。
 SSA 値の推定型は Inlay Hints として表示でき、設定で無効化できる。
 ワークスペース内の `.ll` ファイルにある関数・グローバル・名前付き型・メタデータなどは Workspace Symbols で検索できる。
+`call` / `invoke` / `callbr` の直接呼び出しは Call Hierarchy で callers / callees を辿れる。
 
 - 全体設計: [docs/design.md](docs/design.md)
 - ロードマップ: [docs/roadmap.md](docs/roadmap.md)

@@ -13,6 +13,7 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocuments } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { CallHierarchyIndex, callHierarchyProviderCapability } from "./lsp/call-hierarchy.ts";
 import {
   getCompletionItems,
   getDefinition,
@@ -58,6 +59,7 @@ const SKIPPED_WORKSPACE_DIRS = new Set([".git", "node_modules", "dist", "coverag
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 const snapshots = new Map<string, DocumentSnapshot>();
+const callHierarchy = new CallHierarchyIndex();
 const workspaceSymbols = new WorkspaceSymbolIndex();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const verifierTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -79,6 +81,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       referencesProvider: true,
       documentSymbolProvider: true,
       workspaceSymbolProvider: workspaceSymbolProviderCapability,
+      callHierarchyProvider: callHierarchyProviderCapability,
       completionProvider: { resolveProvider: false },
       renameProvider: { prepareProvider: false },
       foldingRangeProvider: true,
@@ -122,6 +125,7 @@ connection.onDidChangeWatchedFiles((params) => {
     if (!isLlFileUri(change.uri)) continue;
     if (change.type === FileChangeType.Deleted) {
       workspaceSymbols.delete(change.uri);
+      callHierarchy.delete(change.uri);
       snapshots.delete(change.uri);
       continue;
     }
@@ -150,6 +154,14 @@ connection.onDocumentSymbol((params) => {
 });
 
 connection.onWorkspaceSymbol((params) => workspaceSymbols.search(params.query));
+
+connection.languages.callHierarchy.onPrepare((params) =>
+  callHierarchy.prepare(params.textDocument.uri, params.position),
+);
+
+connection.languages.callHierarchy.onIncomingCalls((params) => callHierarchy.incoming(params.item));
+
+connection.languages.callHierarchy.onOutgoingCalls((params) => callHierarchy.outgoing(params.item));
 
 connection.onCompletion((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
@@ -194,6 +206,7 @@ function scheduleAnalysis(document: TextDocument): void {
       snapshots.set(document.uri, snapshot);
       if (isLlFileUri(document.uri)) {
         workspaceSymbols.upsertOpenDocument(document.uri, document.getText(), document.version);
+        callHierarchy.upsertSnapshot(snapshot);
       }
       void diagnosticSettings()
         .then((settings) => {
@@ -328,8 +341,10 @@ function snapshotFor(uri: string): DocumentSnapshot | undefined {
   if (cached?.version === current.version) return cached;
   const snapshot = makeDocumentSnapshot(uri, current.getText(), current.version);
   snapshots.set(uri, snapshot);
-  if (isLlFileUri(uri))
+  if (isLlFileUri(uri)) {
     workspaceSymbols.upsertOpenDocument(uri, current.getText(), current.version);
+    callHierarchy.upsertSnapshot(snapshot);
+  }
   return snapshot;
 }
 
@@ -372,12 +387,15 @@ async function indexFile(uri: string): Promise<void> {
     const openDocument = documents.get(uri);
     if (openDocument) {
       workspaceSymbols.upsertOpenDocument(uri, openDocument.getText(), openDocument.version);
+      callHierarchy.upsert(uri, openDocument.getText(), openDocument.version);
       return;
     }
     const text = await readFile(fileURLToPath(uri), "utf8");
     workspaceSymbols.upsertFile(uri, text);
+    callHierarchy.upsert(uri, text);
   } catch {
     workspaceSymbols.delete(uri);
+    callHierarchy.delete(uri);
   }
 }
 
@@ -385,8 +403,10 @@ async function closeWorkspaceDocument(uri: string): Promise<void> {
   try {
     const text = await readFile(fileURLToPath(uri), "utf8");
     workspaceSymbols.closeOpenDocument(uri, text);
+    callHierarchy.upsert(uri, text);
   } catch {
     workspaceSymbols.closeOpenDocument(uri);
+    callHierarchy.delete(uri);
   }
 }
 
