@@ -247,6 +247,12 @@ describe("LSP 機能アダプタ", () => {
     expect(markdownValue(getHover(snapshot, { line: 4, character: 9 })?.contents)).toContain(
       "; sum = lhs + rhs",
     );
+    expect(markdownValue(getHover(snapshot, { line: 4, character: 9 })?.contents)).not.toContain(
+      "`add`",
+    );
+    expect(markdownValue(getHover(snapshot, { line: 4, character: 9 })?.contents)).not.toContain(
+      "Use:",
+    );
     expect(getHover(snapshot, { line: 7, character: 6 })?.contents).toMatchObject({
       kind: "markdown",
       value: expect.stringContaining("32-bit integer type."),

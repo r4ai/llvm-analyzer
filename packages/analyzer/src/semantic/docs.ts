@@ -28,7 +28,7 @@ const docMarkdown = ({ summary, usage, pseudo, example, reference }: DocMarkdown
   [
     summary,
     "",
-    `Use: ${usage}`,
+    usage,
     "",
     "Example:",
     "```llvm",

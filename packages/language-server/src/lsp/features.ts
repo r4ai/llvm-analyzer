@@ -581,7 +581,7 @@ const docHoverAt = (snapshot: DocumentSnapshot, position: LspPosition): Hover | 
   return {
     contents: {
       kind: MarkupKind.Markdown,
-      value: [`\`${doc.label}\``, "", doc.markdown].join("\n"),
+      value: doc.markdown,
     },
     range: token.range,
   };
