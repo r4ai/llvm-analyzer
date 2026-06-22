@@ -52,12 +52,13 @@ parser/analyzer は `vscode*` に一切依存しない。
 
 - `vscode-languageserver/node` + `vscode-languageserver-textdocument`。VSCode 拡張から IPC で起動。
 - ドキュメント変更をデバウンスして全体再パース（初期はインクリメンタル無し）。
+- 外部 LLVM verifier は language-server の副作用として隔離する。即時診断は parser/analyzer が返し、`llvm-as` などの verifier は追加 debounce 後にバックグラウンド実行する。新しい編集が来たら古い結果は破棄し、実行中プロセスは中止する。
 - capability ↔ analyzer クエリの対応:
   - `hover` ← `symbolAt` + 型/ドキュメント辞書
   - `definition` / `references` ← 定義/参照インデックス
   - `documentSymbol` ← `documentSymbols`
   - `semanticTokens/full` ← トークン分類
-  - `publishDiagnostics` ← `diagnostics`
+  - `publishDiagnostics` ← `diagnostics` + optional external LLVM verifier
   - `completion` ← 基本キーワード/オペコード/スコープ内識別子
   - `rename` ← 参照インデックス
   - `foldingRange` ← 関数/ブロック範囲

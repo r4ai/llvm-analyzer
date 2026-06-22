@@ -6,6 +6,7 @@ LLVM IR (`.ll`) 向けの LSP 機能を提供する VSCode 拡張機能。
 解析ロジックは純粋ドメイン層の parser / analyzer として分離している。
 最新 LLVM LangRef に追従し、`ptrtoaddr`、byte type `bN`、debug record、comdat、use-list order、複数行グローバル初期化子、`ptr addrspace(N)` 引数、PHI / `blockaddress` のラベル参照などを構造解析する。
 診断は LSP 用の軽量な名前解決と最小限の well-formedness に絞り、LLVM verifier 全体の再実装はしない。
+PATH 上に `llvm-as` がある場合は、編集停止後に外部 LLVM verifier を実行し、追加診断として表示する。
 
 - 全体設計: [docs/design.md](docs/design.md)
 - ロードマップ: [docs/roadmap.md](docs/roadmap.md)
@@ -33,6 +34,12 @@ pnpm --filter llvm-analyzer-vscode package    # .vsix を作成
 VSCode で本リポジトリを開き、`F5`（Extension Development Host）を起動して
 [packages/vscode-extension/examples/hello.ll](packages/vscode-extension/examples/hello.ll) を開くと、
 シンタックスハイライトと LSP 機能が確認できる。
+
+### LLVM verifier 連携
+
+既定では `llvm-analyzer.verifier.enabled` が true の場合に、`llvm-as -o {devNull} -` をバックグラウンドで実行する。
+`llvm-as` が PATH に無ければ外部 verifier 診断は出さず、既存の parser/analyzer 診断だけを使う。
+`llvm-analyzer.verifier.command` と `llvm-analyzer.verifier.args` を変えると、`opt -passes=verify -disable-output -` のような別コマンドも使える。
 
 ## サプライチェーン対策
 

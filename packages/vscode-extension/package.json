@@ -48,7 +48,52 @@
         "scopeName": "source.llvm",
         "path": "./syntaxes/llvm.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "LLVM IR",
+      "properties": {
+        "llvm-analyzer.verifier.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "PATH 上の LLVM verifier を使った追加診断を有効にする。"
+        },
+        "llvm-analyzer.verifier.command": {
+          "type": "string",
+          "default": "llvm-as",
+          "description": "LLVM verifier として実行するコマンド。"
+        },
+        "llvm-analyzer.verifier.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "-o",
+            "{devNull}",
+            "-"
+          ],
+          "description": "verifier コマンドへ渡す引数。`{devNull}` は OS の null device に置換される。"
+        },
+        "llvm-analyzer.verifier.debounceMs": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 0,
+          "description": "編集停止後に LLVM verifier を起動するまでの待ち時間（ミリ秒）。"
+        },
+        "llvm-analyzer.verifier.timeoutMs": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 0,
+          "description": "LLVM verifier の実行を打ち切るまでの時間（ミリ秒）。"
+        },
+        "llvm-analyzer.verifier.maxFileBytes": {
+          "type": "number",
+          "default": 1000000,
+          "minimum": 0,
+          "description": "自動 verifier を実行する最大ファイルサイズ（UTF-8 バイト数）。"
+        }
+      }
+    }
   },
   "activationEvents": [
     "onLanguage:llvm"

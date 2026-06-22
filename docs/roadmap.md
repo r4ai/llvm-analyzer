@@ -35,6 +35,10 @@
   - `+nan(0x...)` / `+snan(0x...)` / `f0x...` 数値、最新属性語、`|` 記号、quoted label を lexer/parser/TextMate へ追加
   - 複数行 debug record / switch、改行を含む文字列、関数スコープ use-list order directive を 1 要素として扱う
   - `ptr addrspace(N)` 引数、PHI incoming label、`blockaddress`、metadata attachment key、関数宣言引数名、`alloca` / `getelementptr` / `icmp` の軽量型推定を修正
+- [x] **外部 LLVM verifier 連携**（2026-06-22）
+  - `llvm-as` など PATH 上の verifier を optional な追加診断ソースとして language-server に統合
+  - debounce / cancellation / timeout / maxFileBytes / command missing 無視を実装
+  - VSCode 設定で enabled / command / args / debounceMs / timeoutMs / maxFileBytes を変更可能にした
 
 ## メモ
 

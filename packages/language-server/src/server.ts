@@ -3,6 +3,7 @@ import {
   ProposedFeatures,
   TextDocumentSyncKind,
   createConnection,
+  type Diagnostic,
   type InitializeParams,
   type InitializeResult,
 } from "vscode-languageserver/node";
@@ -22,16 +23,27 @@ import {
   semanticTokenLegend,
   type DocumentSnapshot,
 } from "./lsp/features.ts";
+import {
+  defaultVerifierSettings,
+  runExternalVerifier,
+  type ExternalVerifierSettings,
+} from "./lsp/verifier.ts";
 
 const DIAGNOSTIC_DEBOUNCE_MS = 150;
+const VERIFIER_CONFIG_SECTION = "llvm-analyzer.verifier";
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 const snapshots = new Map<string, DocumentSnapshot>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
+const verifierTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const verifierControllers = new Map<string, AbortController>();
+let supportsConfiguration = false;
+let verifierSettingsCache: Promise<ExternalVerifierSettings> | undefined;
 
-connection.onInitialize(
-  (_params: InitializeParams): InitializeResult => ({
+connection.onInitialize((params: InitializeParams): InitializeResult => {
+  supportsConfiguration = params.capabilities.workspace?.configuration === true;
+  return {
     capabilities: {
       textDocumentSync: TextDocumentSyncKind.Incremental,
       hoverProvider: true,
@@ -47,8 +59,15 @@ connection.onInitialize(
         full: true,
       },
     },
-  }),
-);
+  };
+});
+
+connection.onDidChangeConfiguration(() => {
+  verifierSettingsCache = undefined;
+  for (const document of documents.all()) {
+    scheduleAnalysis(document);
+  }
+});
 
 documents.onDidOpen((event) => scheduleAnalysis(event.document));
 documents.onDidChangeContent((event) => scheduleAnalysis(event.document));
@@ -113,7 +132,9 @@ function scheduleAnalysis(document: TextDocument): void {
     setTimeout(() => {
       const snapshot = makeDocumentSnapshot(document.uri, document.getText(), document.version);
       snapshots.set(document.uri, snapshot);
-      connection.sendDiagnostics({ uri: document.uri, diagnostics: getDiagnostics(snapshot) });
+      const baseDiagnostics = getDiagnostics(snapshot);
+      connection.sendDiagnostics({ uri: document.uri, diagnostics: baseDiagnostics });
+      scheduleVerifier(snapshot, baseDiagnostics);
       timers.delete(document.uri);
     }, DIAGNOSTIC_DEBOUNCE_MS),
   );
@@ -123,6 +144,83 @@ function clearPending(uri: string): void {
   const timer = timers.get(uri);
   if (timer) clearTimeout(timer);
   timers.delete(uri);
+  clearPendingVerifier(uri);
+}
+
+function clearPendingVerifier(uri: string): void {
+  const timer = verifierTimers.get(uri);
+  if (timer) clearTimeout(timer);
+  verifierTimers.delete(uri);
+  verifierControllers.get(uri)?.abort();
+  verifierControllers.delete(uri);
+}
+
+function scheduleVerifier(
+  snapshot: DocumentSnapshot,
+  baseDiagnostics: readonly Diagnostic[],
+): void {
+  void verifierSettings()
+    .then((settings) => {
+      if (!settings.enabled) return;
+      if (!isSnapshotCurrent(snapshot)) return;
+      const timer = setTimeout(() => {
+        verifierTimers.delete(snapshot.uri);
+        runVerifier(snapshot, baseDiagnostics, settings);
+      }, settings.debounceMs);
+      verifierTimers.set(snapshot.uri, timer);
+    })
+    .catch(() => {
+      // 設定取得に失敗しても、既存の軽量診断は維持する。
+    });
+}
+
+function runVerifier(
+  snapshot: DocumentSnapshot,
+  baseDiagnostics: readonly Diagnostic[],
+  settings: ExternalVerifierSettings,
+): void {
+  if (!isSnapshotCurrent(snapshot)) return;
+  const controller = new AbortController();
+  verifierControllers.set(snapshot.uri, controller);
+  void runExternalVerifier(snapshot.document, settings, controller.signal)
+    .then((diagnostics) => {
+      if (verifierControllers.get(snapshot.uri) !== controller) return;
+      verifierControllers.delete(snapshot.uri);
+      if (!isSnapshotCurrent(snapshot)) return;
+      connection.sendDiagnostics({
+        uri: snapshot.uri,
+        diagnostics: [...baseDiagnostics, ...diagnostics],
+      });
+    })
+    .catch(() => {
+      if (verifierControllers.get(snapshot.uri) === controller) {
+        verifierControllers.delete(snapshot.uri);
+      }
+    });
+}
+
+function isSnapshotCurrent(snapshot: DocumentSnapshot): boolean {
+  const current = documents.get(snapshot.uri);
+  return current !== undefined && current.version === snapshot.version;
+}
+
+function verifierSettings(): Promise<ExternalVerifierSettings> {
+  verifierSettingsCache ??= loadVerifierSettings();
+  return verifierSettingsCache;
+}
+
+async function loadVerifierSettings(): Promise<ExternalVerifierSettings> {
+  if (!supportsConfiguration) return defaultVerifierSettings;
+  const raw = await connection.workspace.getConfiguration(VERIFIER_CONFIG_SECTION);
+  if (!isRecord(raw)) return defaultVerifierSettings;
+  return {
+    enabled: booleanSetting(raw.enabled, defaultVerifierSettings.enabled),
+    command: stringSetting(raw.command, defaultVerifierSettings.command),
+    args: stringArraySetting(raw.args, defaultVerifierSettings.args),
+    debounceMs: numberSetting(raw.debounceMs, defaultVerifierSettings.debounceMs),
+    timeoutMs: numberSetting(raw.timeoutMs, defaultVerifierSettings.timeoutMs),
+    maxFileBytes: numberSetting(raw.maxFileBytes, defaultVerifierSettings.maxFileBytes),
+  };
 }
 
 function snapshotFor(uri: string): DocumentSnapshot | undefined {
@@ -133,4 +231,26 @@ function snapshotFor(uri: string): DocumentSnapshot | undefined {
   const snapshot = makeDocumentSnapshot(uri, current.getText(), current.version);
   snapshots.set(uri, snapshot);
   return snapshot;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function booleanSetting(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function stringSetting(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function stringArraySetting(value: unknown, fallback: readonly string[]): string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value
+    : [...fallback];
+}
+
+function numberSetting(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
