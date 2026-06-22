@@ -3,12 +3,36 @@
   "displayName": "LLVM IR",
   "version": "0.0.1",
   "private": true,
-  "description": "LLVM IR language support: syntax highlighting (LSP features in progress).",
+  "description": "LLVM IR language support with syntax highlighting and LSP features.",
   "categories": [
     "Programming Languages"
   ],
   "license": "MIT",
   "publisher": "r4ai",
+  "files": [
+    "dist",
+    "language-configuration.json",
+    "syntaxes",
+    "examples",
+    "README.md",
+    "package.json"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "package": "pnpm build && vsce package --no-dependencies --out llvm-analyzer-vscode.vsix",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@llvm-analyzer/language-server": "workspace:*",
+    "vscode-languageclient": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.7.0",
+    "esbuild": "^0.27.2"
+  },
   "contributes": {
     "languages": [
       {
@@ -31,6 +55,9 @@
       }
     ]
   },
+  "activationEvents": [
+    "onLanguage:llvm"
+  ],
   "engines": {
     "vscode": "^1.96.0"
   }
