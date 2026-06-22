@@ -1,7 +1,16 @@
 packages:
   - "packages/*"
 
+# --- サプライチェーン対策 ---
+# 公開から24時間(1440分)未満の新バージョンをインストールしない。
+# 公開直後に乗っ取られたリリースを即座に取り込むのを防ぐ。
+minimumReleaseAge: 1440
+
+# v11では旧設定(`onlyBuiltDependencies`等)は廃止。実行許可はallowBuildsで管理する。
 allowBuilds:
   "@vscode/vsce-sign": true
   esbuild: true
   keytar: true
+
+# 依存の状態確認を行う際の既定挙動。非推奨の実行を避ける。
+verifyDepsBeforeRun: warn

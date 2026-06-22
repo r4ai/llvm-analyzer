@@ -52,5 +52,5 @@ VSCode で本リポジトリを開き、`F5`（Extension Development Host）を�
 
 ## サプライチェーン対策
 
-- pnpm: `minimumReleaseAge`（公開直後の新バージョンを取り込まない）、`onlyBuiltDependencies`（ライフサイクルスクリプトを許可制）、`--frozen-lockfile`。
+- pnpm: `minimumReleaseAge`（公開直後の新バージョンを取り込まない）、`allowBuilds`（許可した依存のみビルドスクリプト実行）、`--frozen-lockfile`。
 - GitHub Actions: [pinact](https://github.com/suzuki-shunsuke/pinact) で全 `uses:` をコミットSHAにピン留めし、CI で `pinact run --check` を検証。
