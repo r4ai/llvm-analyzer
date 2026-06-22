@@ -22,10 +22,14 @@ parser/analyzer は `vscode*` に一切依存しない。
 
 ### parser（純粋・最重要）
 
-- **lexer**: 状態遷移表ベースのトークナイザ。各トークンに `range`（line/column/offset）を保持。
-  - トークン種別: グローバル識別子 `@name`/`@"..."`/`@1`、ローカル識別子 `%name`/`%1`、ラベル、
+- **lexer**: 状態遷移表ベースのトークナイザ。各トークンに `range`（offset/line/column, **0始まり**＝LSP互換）を保持。
+  - 公開API: `tokenize(source: string): Token[]`（純粋関数、末尾に必ずゼロ幅の `Eof`）。
+  - 不変条件: `source.slice(range.start.offset, range.end.offset) === token.value`。
+  - 不正な文字は `Unknown` トークンとして残し解析を止めない（エラー回復）。
+  - トークン種別: グローバル識別子 `@name`/`@"..."`/`@1`、ローカル識別子 `%name`/`%1`、ラベル (`name:`)、
     メタデータ `!name`/`!0`、属性グループ `#0`、comdat `$name`、
-    型キーワード (`i32`, `ptr`, `void`, `float`…)、命令オペコード、数値、文字列、コメント (`;`)、記号。
+    型キーワード (`i32`, `ptr`, `void`, `float`…)、命令オペコード、定数 (`true`/`null`…)、数値、文字列、コメント (`;`)、記号。
+    バーワード（記号なしの語）は lexer 内で既知の語集合により種別まで分類する（未分類は `Identifier`）。
 - **ast**: ノード型定義（Module / TypeDef / GlobalVar / FunctionDef / FunctionDecl / BasicBlock / Instruction / Operand / Metadata…）。各ノードに `range`。
 - **parser**: 再帰下降パーサ。**エラー回復付き**（1命令の失敗で全体を止めない）で構文エラーを診断として収集。
 - 公開API例: `parseModule(source: string): { ast: Module; diagnostics: ParseDiagnostic[] }`

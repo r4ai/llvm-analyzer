@@ -19,6 +19,7 @@ pnpm lint               # oxlint
 pnpm format             # oxfmt --check
 pnpm typecheck          # tsc
 pnpm test               # vitest
+pnpm test:coverage      # vitest + カバレッジ（v8）
 ```
 
 ### 拡張機能の動作確認

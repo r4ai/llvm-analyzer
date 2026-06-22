@@ -7,9 +7,10 @@
 - [x] **基盤 + シンタックスハイライト**（2026-06-22）
   - モノレポ足場（mise / pnpm workspace + サプライチェーン対策 / oxlint / oxfmt / lefthook / CI + pinact）
   - `packages/vscode-extension`: TextMate文法による `.ll` のシンタックスハイライト、`language-configuration.json`、サンプル
-- [ ] **parser: lexer**
-  - 状態遷移表から網羅的にテストケースを設計（探索 → Red → Green → Refactor）
-  - トークン: `@`/`%`/`!`/`#`/`$` 識別子、型キーワード、オペコード、数値、文字列、コメント、記号。各トークンに `range`
+- [x] **parser: lexer**（2026-06-22）
+  - `packages/parser` 新設。`tokenize(source): Token[]`（純粋関数、末尾に `Eof`、不正文字は `Unknown` で回復）
+  - トークン: `@`/`%`/`!`/`#`/`$` 識別子、ラベル、型キーワード、オペコード、定数、数値、文字列、コメント、記号。各トークンに `range`（offset/line/column, 0始まり）
+  - 状態遷移表から網羅的にテスト設計（探索 → Red → Green → Refactor）。カバレッジは行/文/関数100%
 - [ ] **parser: AST + 再帰下降パーサ**
   - ノード型定義、エラー回復付きパース、構文診断の収集
 - [ ] **analyzer: 意味モデル**
