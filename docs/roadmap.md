@@ -11,8 +11,11 @@
   - `packages/parser` 新設。`tokenize(source): Token[]`（純粋関数、末尾に `Eof`、不正文字は `Unknown` で回復）
   - トークン: `@`/`%`/`!`/`#`/`$` 識別子、ラベル、型キーワード、オペコード、定数、数値、文字列、コメント、記号。各トークンに `range`（offset/line/column, 0始まり）
   - 状態遷移表から網羅的にテスト設計（探索 → Red → Green → Refactor）。カバレッジは行/文/関数100%
-- [ ] **parser: AST + 再帰下降パーサ**
-  - ノード型定義、エラー回復付きパース、構文診断の収集
+- [x] **parser: AST + 再帰下降パーサ**（2026-06-22）
+  - `parseModule(source): { ast: Module; diagnostics: ParseDiagnostic[] }`（純粋関数）。トップレベルは行ベース、`define` 本体のみ `{}` ブロック
+  - AST: Module / 各トップレベルエントリ（SourceFilename / TargetDefinition / TypeDefinition / GlobalVariable / FunctionDeclaration / FunctionDefinition / AttributeGroupDefinition / MetadataDefinition / UnknownEntry）/ BasicBlock / Instruction / IdentifierRef。各ノードに `range`
+  - 粒度は「構造重視・命令は粗く」: 命令・型の内部は構造化せず、出現する識別子参照（`@`/`%`/`!`/`#`/`$`・ラベル）を収集。型解決は analyzer へ
+  - エラー回復付き（1行の失敗で全体を止めず `UnknownEntry`＋診断で継続）。構文パターンから網羅的にテスト設計
 - [ ] **analyzer: 意味モデル**
   - シンボル表 / スコープ（モジュール・関数）/ 定義参照インデックス / 型解決 / 診断
   - オペコード・型のドキュメント辞書

@@ -30,8 +30,11 @@ parser/analyzer は `vscode*` に一切依存しない。
     メタデータ `!name`/`!0`、属性グループ `#0`、comdat `$name`、
     型キーワード (`i32`, `ptr`, `void`, `float`…)、命令オペコード、定数 (`true`/`null`…)、数値、文字列、コメント (`;`)、記号。
     バーワード（記号なしの語）は lexer 内で既知の語集合により種別まで分類する（未分類は `Identifier`）。
-- **ast**: ノード型定義（Module / TypeDef / GlobalVar / FunctionDef / FunctionDecl / BasicBlock / Instruction / Operand / Metadata…）。各ノードに `range`。
-- **parser**: 再帰下降パーサ。**エラー回復付き**（1命令の失敗で全体を止めない）で構文エラーを診断として収集。
+- **ast**: ノード型定義（Module / TypeDefinition / GlobalVariable / FunctionDefinition / FunctionDeclaration / BasicBlock / Instruction / IdentifierRef / MetadataDefinition…）。各ノードに `range`。
+- **parser**: 再帰下降パーサ。**エラー回復付き**（1行の失敗で全体を止めず `UnknownEntry`＋診断で継続）で構文エラーを診断として収集。
+  - **粒度は「構造重視・命令は粗く」**: トップレベル構造は型付きノードへ分解するが、命令・型の内部は構造化せず、出現する識別子参照（`@`/`%`/`!`/`#`/`$`・ラベル）を {@link IdentifierRef} として収集するにとどめる。定義/参照位置が取れれば LSP の definition/references/documentSymbol/foldingRange が成立する。型の構造化・各オペコード専用ノードは将来フェーズ。
+  - **走査方針**: LLVM IR は実体として 1 行 1 文なのでトップレベルは**行ベース**で走査し、`define` 本体のみ `{`...`}` のブレース対応でブロックを切り出す。
+  - 各トップレベルエントリは共通で `defines?`（導入する名前）と `references`（本体の参照列）を持ち、analyzer のシンボル表/定義参照インデックスの直接の入力になる。
 - 公開API例: `parseModule(source: string): { ast: Module; diagnostics: ParseDiagnostic[] }`
 
 ### analyzer（純粋）
