@@ -66,7 +66,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - ワークスペース横断機能は language-server 側で `.ll` ファイルごとの解析結果を索引化し、parser/analyzer の純粋 API から得たシンボル・呼び出し・ファイル参照候補を LSP 形式へ変換する。
   初期の workspace symbol 索引は URI 単位で `DocumentSnapshot` を保持し、open document・workspace folder 初期走査・watched file events で更新する。
 - capability ↔ analyzer クエリの対応:
-  - `hover` ← `symbolAt` + 型/ドキュメント辞書。シンボル参照では英語の短い markdown を返し、宣言形のコードブロック、Kind / Type / Scope の表、定義元行（parameter は関数シグネチャ、local は定義命令）を表示する。opcode/type token では短い意味、典型的な使い方、LLVM IR 例、公式 LangRef リンクを返す
+  - `hover` ← `symbolAt` + 型/ドキュメント辞書。シンボル参照では英語の短い markdown を返し、宣言形のコードブロック、Kind / Type / Scope の表、定義元行（parameter は関数シグネチャ、local は定義命令）を表示する。opcode/type token では短い意味、典型的な使い方、LLVM IR 例、公式 LangRef リンクを返す。opcode docs は lexer が扱う LangRef 命令と `define` / `declare` を網羅する。
   - `definition` / `references` ← 定義/参照インデックス。`references` は LSP の `includeDeclaration` を尊重する
   - `documentSymbol` ← `documentSymbols`
   - `semanticTokens/full` ← トークン分類

@@ -602,6 +602,77 @@ describe("analyze: 直接呼び出し抽出", () => {
 
 describe("docs", () => {
   it("オペコード・型のドキュメント辞書を持つ", () => {
+    const documentedOpcodes = [
+      "ret",
+      "br",
+      "switch",
+      "indirectbr",
+      "invoke",
+      "callbr",
+      "resume",
+      "catchswitch",
+      "catchret",
+      "cleanupret",
+      "unreachable",
+      "fneg",
+      "add",
+      "fadd",
+      "sub",
+      "fsub",
+      "mul",
+      "fmul",
+      "udiv",
+      "sdiv",
+      "fdiv",
+      "urem",
+      "srem",
+      "frem",
+      "shl",
+      "lshr",
+      "ashr",
+      "and",
+      "or",
+      "xor",
+      "extractelement",
+      "insertelement",
+      "shufflevector",
+      "extractvalue",
+      "insertvalue",
+      "alloca",
+      "load",
+      "store",
+      "fence",
+      "cmpxchg",
+      "atomicrmw",
+      "getelementptr",
+      "trunc",
+      "zext",
+      "sext",
+      "fptrunc",
+      "fpext",
+      "fptoui",
+      "fptosi",
+      "uitofp",
+      "sitofp",
+      "ptrtoint",
+      "inttoptr",
+      "ptrtoaddr",
+      "bitcast",
+      "addrspacecast",
+      "icmp",
+      "fcmp",
+      "phi",
+      "select",
+      "freeze",
+      "call",
+      "va_arg",
+      "landingpad",
+      "catchpad",
+      "cleanuppad",
+      "define",
+      "declare",
+    ];
+    expect([...opcodeDocs.keys()]).toEqual(expect.arrayContaining(documentedOpcodes));
     expect(opcodeDocs.get("add")?.label).toBe("add");
     expect(opcodeDocs.get("call")?.markdown).toContain("Calls a function");
     expect(opcodeDocs.get("call")?.markdown).toContain("Example:");
@@ -611,6 +682,8 @@ describe("docs", () => {
     );
     expect(opcodeDocs.get("call")?.markdown).toContain("; n = strlen(s)");
     expect(opcodeDocs.get("add")?.markdown).toContain("; sum = lhs + rhs");
+    expect(opcodeDocs.get("icmp")?.markdown).toContain("; is_equal = lhs == rhs");
+    expect(opcodeDocs.get("declare")?.markdown).toContain("; external function signature");
     expect(opcodeDocs.get("add")?.markdown).toContain("%sum = add i32 %lhs, %rhs");
     expect(typeDocs.get("ptr")?.markdown).toContain("opaque pointer");
     expect(typeDocs.get("ptr")?.markdown).toContain(

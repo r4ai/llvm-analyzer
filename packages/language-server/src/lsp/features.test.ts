@@ -262,6 +262,26 @@ describe("LSP 機能アダプタ", () => {
     );
   });
 
+  it("hover は declare と icmp の docs を返す", () => {
+    const docs = makeDocumentSnapshot(
+      "file:///docs-hover.ll",
+      [
+        "declare i32 @puts(ptr)",
+        "define i1 @cmp(i32 %a, i32 %b) {",
+        "  %r = icmp eq i32 %a, %b",
+        "  ret i1 %r",
+        "}",
+      ].join("\n"),
+    );
+
+    expect(markdownValue(getHover(docs, { line: 0, character: 1 })?.contents)).toContain(
+      "external function signature",
+    );
+    expect(markdownValue(getHover(docs, { line: 2, character: 8 })?.contents)).toContain(
+      "; is_equal = lhs == rhs",
+    );
+  });
+
   it("hover はユーザー定義関数名に同名 opcode の説明を混ぜない", () => {
     const userFunction = makeDocumentSnapshot(
       "file:///hover-user-function.ll",
