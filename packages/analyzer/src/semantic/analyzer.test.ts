@@ -797,6 +797,142 @@ describe("docs", () => {
     );
   });
 
+  it("LLVM LangRef の属性 hover docs を網羅する", () => {
+    const langRefAttributes = [
+      '"alloc-family"',
+      '"alloc-variant-zeroed"',
+      '"dontcall-error"',
+      '"dontcall-warn"',
+      '"frame-pointer"',
+      '"modular-format"',
+      '"no-inline-line-tables"',
+      '"no-stack-arg-probe"',
+      '"patchable-function"',
+      '"patchable-function-entry"',
+      '"patchable-function-entry-section"',
+      '"patchable-function-prefix"',
+      '"probe-stack"',
+      '"stack-probe-size"',
+      '"thunk"',
+      '"warn-stack-size"',
+      "align",
+      "alignstack",
+      "allocalign",
+      "allockind",
+      "allocptr",
+      "allocsize",
+      "alwaysinline",
+      "builtin",
+      "byref",
+      "byval",
+      "captures",
+      "cold",
+      "convergent",
+      "dead_on_return",
+      "dead_on_unwind",
+      "denormal_fpenv",
+      "dereferenceable",
+      "dereferenceable_or_null",
+      "disable_sanitizer_instrumentation",
+      "elementtype",
+      "fn_ret_thunk_extern",
+      "hot",
+      "immarg",
+      "inalloca",
+      "indirect-tls-seg-refs",
+      "inreg",
+      "initializes",
+      "inlinehint",
+      "jumptable",
+      "memory",
+      "minsize",
+      "mustprogress",
+      "naked",
+      "nest",
+      "no-jump-tables",
+      "no_sanitize_address",
+      "no_sanitize_hwaddress",
+      "noalias",
+      "nobuiltin",
+      "nocallback",
+      "nocf_check",
+      "nocreateundeforpoison",
+      "nodivergencesource",
+      "noduplicate",
+      "noext",
+      "nofpclass",
+      "nofree",
+      "noimplicitfloat",
+      "noinline",
+      "nomerge",
+      "nonlazybind",
+      "nonnull",
+      "nooutline",
+      "noprofile",
+      "noredzone",
+      "norecurse",
+      "noreturn",
+      "nosanitize_bounds",
+      "nosanitize_coverage",
+      "nosync",
+      "noundef",
+      "nounwind",
+      "null_pointer_is_valid",
+      "optdebug",
+      "optforfuzzing",
+      "optnone",
+      "optsize",
+      "preallocated",
+      "range",
+      "readnone",
+      "readonly",
+      "returned",
+      "returns_twice",
+      "safestack",
+      "sanitize_address",
+      "sanitize_address_dyninit",
+      "sanitize_alloc_token",
+      "sanitize_hwaddress",
+      "sanitize_memory",
+      "sanitize_memtag",
+      "sanitize_realtime",
+      "sanitize_realtime_blocking",
+      "sanitize_thread",
+      "shadowcallstack",
+      "signext",
+      "skipprofile",
+      "speculatable",
+      "speculative_load_hardening",
+      "sret",
+      "ssp",
+      "sspreq",
+      "sspstrong",
+      "strictfp",
+      "swiftasync",
+      "swifterror",
+      "swiftself",
+      "uwtable",
+      "vscale_range",
+      "willreturn",
+      "writable",
+      "writeonly",
+      "zeroext",
+    ];
+
+    expect([...attributeDocs.keys()]).toEqual(expect.arrayContaining(langRefAttributes));
+  });
+
+  it("属性構文内の補助語にも hover docs を持つ", () => {
+    expect(attributeDocs.get("address")?.markdown).toContain("pointer address component");
+    expect(attributeDocs.get("read_provenance")?.markdown).toContain("read-only access");
+    expect(attributeDocs.get("argmem")?.markdown).toContain("pointer arguments");
+    expect(attributeDocs.get("none")?.markdown).toContain("No memory access");
+    expect(attributeDocs.get("target_mem0")?.markdown).toContain("target-specific");
+    expect(attributeDocs.get("read")?.markdown).toContain("may read");
+    expect(attributeDocs.get("preservesign")?.markdown).toContain("preserving the sign");
+    expect(attributeDocs.get("positivezero")?.markdown).toContain("positive zero");
+  });
+
   it("LangRef に沿った正確な表示文言を持つ", () => {
     expect(opcodeDocs.get("callbr")?.markdown).toContain(
       'callbr void asm sideeffect "", "!i"() to label %fallthrough [label %target]',
@@ -815,6 +951,20 @@ describe("docs", () => {
     );
     expect(attributeDocs.get("denormal_fpenv")?.markdown).toContain(
       "https://llvm.org/docs/LangRef.html#denormal-fpenv",
+    );
+    expect(attributeDocs.get("byval")?.markdown).toContain("copy of the pointee");
+    expect(attributeDocs.get("byval")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#parameter-attributes",
+    );
+    expect(attributeDocs.get('"frame-pointer"')?.markdown).toContain("frame pointer policy");
+    expect(attributeDocs.get("no_sanitize_address")?.markdown).toContain(
+      "AddressSanitizer instrumentation",
+    );
+    expect(attributeDocs.get("sanitize_memtag")?.markdown).toContain(
+      "@g = global i32 0, sanitize_memtag",
+    );
+    expect(attributeDocs.get("sanitize_memtag")?.markdown).toContain(
+      "https://llvm.org/docs/LangRef.html#global-attributes",
     );
   });
 });

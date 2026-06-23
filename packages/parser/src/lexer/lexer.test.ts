@@ -185,14 +185,17 @@ describe("tokenize: バーワードの分類", () => {
       "range",
       "nofpclass",
       "argmem",
+      "inaccessiblemem",
       "errnomem",
+      "target_mem0",
+      "target_mem1",
       "read",
       "write",
       "readwrite",
       "denormal_fpenv",
       "ieee",
-      "preserve-sign",
-      "positive-zero",
+      "preservesign",
+      "positivezero",
       "dynamic",
       "sanitize_memtag",
       "sanitize_realtime",
@@ -203,6 +206,10 @@ describe("tokenize: バーワードの分類", () => {
     ]) {
       expect(firstKind(w)).toBe("Keyword");
     }
+  });
+
+  it("quoted string 属性だけで使う名前は bareword Keyword にしない", () => {
+    expect(firstKind("frame_pointer")).toBe("Identifier");
   });
 
   it("命令オペコードは Opcode", () => {

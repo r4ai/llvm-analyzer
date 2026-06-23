@@ -96,6 +96,10 @@
   - 関数属性・パラメータ属性・メモリ効果属性・浮動小数点環境属性の代表語に hover docs を追加した
   - 属性 hover に短い意味、使い方、LLVM IR 例、公式 LangRef リンクを表示する
   - `nounwind` / `noundef` / `captures` / `memory` などを LSP hover から確認できるようにした
+- [x] **Complete Attribute Hover Docs**（2026-06-23）
+  - LangRef の parameter / function / global attributes を hover docs に追加した
+  - `captures(...)` component、`memory(...)` location / access kind、`denormal_fpenv(...)` mode にも hover docs を追加した
+  - lexer の既知 keyword を最新の属性語に合わせて補強した
 
 ## メモ
 

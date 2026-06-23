@@ -311,6 +311,30 @@ describe("LSP 機能アダプタ", () => {
     );
   });
 
+  it("hover は網羅追加した属性と属性補助語の docs を返す", () => {
+    const docs = makeDocumentSnapshot(
+      "file:///complete-attribute-hover.ll",
+      [
+        'attributes #0 = { "frame-pointer"="all" denormal_fpenv(ieee|ieee) }',
+        "declare void @copy(ptr byval(i32) %p) #0",
+        "declare void @scan(ptr captures(address, read_provenance) %p) memory(argmem: read)",
+      ].join("\n"),
+    );
+
+    expect(markdownValue(getHover(docs, { line: 0, character: 18 })?.contents)).toContain(
+      "frame pointer policy",
+    );
+    expect(markdownValue(getHover(docs, { line: 1, character: 24 })?.contents)).toContain(
+      "copy of the pointee",
+    );
+    expect(markdownValue(getHover(docs, { line: 2, character: 33 })?.contents)).toContain(
+      "pointer address component",
+    );
+    expect(markdownValue(getHover(docs, { line: 2, character: 70 })?.contents)).toContain(
+      "pointer arguments",
+    );
+  });
+
   it("hover はユーザー定義関数名に同名 opcode の説明を混ぜない", () => {
     const userFunction = makeDocumentSnapshot(
       "file:///hover-user-function.ll",
