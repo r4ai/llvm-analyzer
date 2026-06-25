@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Workflow"
+  short_description: "Changesets release workflow."
+  default_prompt: "Use $release-workflow to add changesets, create release PRs, or diagnose VS Code Marketplace publishing."

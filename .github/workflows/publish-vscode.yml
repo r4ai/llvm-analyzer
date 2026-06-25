@@ -69,4 +69,4 @@ jobs:
       - name: Publish VSIX
         env:
           AZURE_CORE_OUTPUT: none
-        run: pnpm --filter llvm-analyzer-vscode exec vsce publish --azure-credential --packagePath llvm-analyzer-vscode.vsix
+        run: pnpm --filter llvm-analyzer-vscode exec vsce publish --azure-credential --skip-duplicate --packagePath llvm-analyzer-vscode.vsix

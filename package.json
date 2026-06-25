@@ -6,16 +6,19 @@
   "license": "MIT",
   "scripts": {
     "build": "pnpm -r --if-present build",
+    "changeset": "changeset",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "lint": "oxlint --no-error-on-unmatched-pattern",
     "format": "oxfmt --check .",
     "format:write": "oxfmt .",
     "typecheck": "pnpm -r --if-present typecheck",
+    "version-packages": "changeset version",
     "pin-actions": "pinact run",
     "prepare": "lefthook install"
   },
   "devDependencies": {
+    "@changesets/cli": "2.31.0",
     "oxfmt": "0.55.0",
     "oxlint": "1.70.0",
     "typescript": "^6.0.3",

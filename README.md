@@ -60,14 +60,31 @@ pnpm --filter llvm-analyzer-vscode package
 
 ### VSCode Marketplace への公開
 
-Marketplace 公開は [`.github/workflows/publish-vscode.yml`](.github/workflows/publish-vscode.yml) で行います。
+リリース管理は Changesets で行います。
+利用者へ届く変更を入れる PR では、次のコマンドで `llvm-analyzer-vscode` 向けの changeset を追加します。
+
+```sh
+pnpm changeset
+```
+
+リリース不要の変更では empty changeset を追加します。
+
+```sh
+pnpm changeset --empty
+```
+
+`main` へ changeset が入ると [`.github/workflows/release.yml`](.github/workflows/release.yml) が Version PR を作ります。
+Version PR を merge すると、同じ workflow が VSIX を作成し、Marketplace publish と GitHub Release 作成を行います。
+empty changeset だけの Version PR など、`packages/vscode-extension/package.json` の version が変わらない merge では publish しません。
+
+Marketplace 公開の手動実行は [`.github/workflows/publish-vscode.yml`](.github/workflows/publish-vscode.yml) で行います。
 長期 PAT は使わず、GitHub Actions の OIDC token を Microsoft Entra の federated credential と交換し、`vsce publish --azure-credential` で公開します。
 
 公開ワークフローは次の方針です。
 
 | 項目         | 方針                                                                                                             |
 | ------------ | ---------------------------------------------------------------------------------------------------------------- |
-| 実行条件     | 手動実行、または prerelease ではない GitHub Release の公開                                                       |
+| 実行条件     | Version PR merge 後の `main` push、手動実行、または prerelease ではない GitHub Release の公開                    |
 | 権限         | 既定は `contents: read`。Marketplace 公開 job だけ `id-token: write` を付与                                      |
 | 環境         | `vscode-marketplace` environment を使い、必要なら reviewer / protected branch を設定する                         |
 | 認証         | `vars.AZURE_CLIENT_ID` と `vars.AZURE_TENANT_ID` で Entra identity を指定し、secret は保存しない                 |

@@ -1,0 +1,151 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changesets:
+    name: Create Version PR
+    if: github.repository == 'r4ai/llvm-analyzer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      has-changesets: ${{ steps.changesets.outputs.hasChangesets }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
+      - run: pnpm install --frozen-lockfile
+      - name: Create Version PR
+        id: changesets
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        with:
+          version: pnpm version-packages
+          title: "chore: version packages"
+          commit: "chore: version packages"
+          commitMode: github-api
+          createGithubReleases: false
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  prepare-release:
+    name: Prepare Release
+    needs: changesets
+    if: needs.changesets.outputs.has-changesets == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should-release: ${{ steps.version.outputs.should-release }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - id: version
+        name: Resolve release version
+        run: |
+          changed_files="$(git diff-tree --no-commit-id --name-only -r -m "$GITHUB_SHA")"
+          if ! printf '%s\n' "$changed_files" | grep -qx "packages/vscode-extension/package.json"; then
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          version="$(node -p "require('./packages/vscode-extension/package.json').version")"
+          tag="llvm-analyzer-vscode@${version}"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  package:
+    name: Build VSIX
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter llvm-analyzer-vscode package
+      - name: Record VSIX checksum
+        run: sha256sum packages/vscode-extension/llvm-analyzer-vscode.vsix > packages/vscode-extension/llvm-analyzer-vscode.vsix.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: llvm-analyzer-vscode-vsix
+          path: |
+            packages/vscode-extension/llvm-analyzer-vscode.vsix
+            packages/vscode-extension/llvm-analyzer-vscode.vsix.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish Release
+    needs:
+      - prepare-release
+      - package
+    if: needs.prepare-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    environment: vscode-marketplace
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: llvm-analyzer-vscode-vsix
+          path: packages/vscode-extension
+      - name: Verify VSIX checksum
+        run: sha256sum --check packages/vscode-extension/llvm-analyzer-vscode.vsix.sha256
+      - uses: azure/login@1384c340ab2dda50fed2bee3041d1d87018aa5e8 # v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Publish VSIX
+        env:
+          AZURE_CORE_OUTPUT: none
+        run: pnpm --filter llvm-analyzer-vscode exec vsce publish --azure-credential --skip-duplicate --packagePath llvm-analyzer-vscode.vsix
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+        run: |
+          node scripts/vscode-release-notes.mjs > release-notes.md
+          gh release create "$TAG" packages/vscode-extension/llvm-analyzer-vscode.vsix \
+            --target "$GITHUB_SHA" \
+            --title "llvm-analyzer-vscode ${VERSION}" \
+            --notes-file release-notes.md

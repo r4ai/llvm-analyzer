@@ -104,6 +104,10 @@
   - GitHub Actions OIDC と Microsoft Entra federated credential を使い、長期 PAT なしで Marketplace 公開するワークフローを追加した
   - VSIX 作成 job と公開 job を分離し、`id-token: write` を公開 job だけに限定した
   - 外部 Actions の SHA 固定、checksum 検証、公開 job の `--ignore-scripts` install、`.vscodeignore` による VSIX 内容制限を追加した
+- [x] **Changesets リリース運用**（2026-06-25）
+  - `@changesets/cli` と `.changeset/config.json` を導入し、`llvm-analyzer-vscode` の version / changelog を changeset から生成できるようにした
+  - `main` push で Version PR を作り、Version PR merge 後に OIDC publish と GitHub Release 作成を行う `Release` ワークフローを追加した
+  - PR CI で changeset または empty changeset の有無を確認し、repo 固有の `release-workflow` スキルに運用手順を記録した
 
 ## メモ
 
