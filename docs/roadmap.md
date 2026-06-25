@@ -100,6 +100,10 @@
   - LangRef の parameter / function / global attributes を hover docs に追加した
   - `captures(...)` component、`memory(...)` location / access kind、`denormal_fpenv(...)` mode にも hover docs を追加した
   - lexer の既知 keyword を最新の属性語に合わせて補強した
+- [x] **VSCode Marketplace OIDC 公開**（2026-06-25）
+  - GitHub Actions OIDC と Microsoft Entra federated credential を使い、長期 PAT なしで Marketplace 公開するワークフローを追加した
+  - VSIX 作成 job と公開 job を分離し、`id-token: write` を公開 job だけに限定した
+  - 外部 Actions の SHA 固定、checksum 検証、公開 job の `--ignore-scripts` install、`.vscodeignore` による VSIX 内容制限を追加した
 
 ## メモ
 

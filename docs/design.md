@@ -106,3 +106,9 @@ parser/analyzer は `vscode*` に一切依存しない。
 `@vscode/vsce` で `.vsix` をパッケージする。
 `packages/vscode-extension` の `pnpm build` は extension と language-server と E2E suite を `dist/` へバンドルする。
 `pnpm --filter llvm-analyzer-vscode package` で `llvm-analyzer-vscode.vsix` を作成する。
+
+VSCode Marketplace への公開は GitHub Actions の `Publish VS Code Extension` ワークフローで行う。
+長期 PAT は使わず、`vscode-marketplace` environment に紐づく GitHub OIDC subject を Microsoft Entra federated credential で信頼し、`azure/login` 後に `vsce publish --azure-credential` を実行する。
+サプライチェーン攻撃時の影響範囲を抑えるため、VSIX 作成 job と公開 job を分離し、`id-token: write` は公開 job だけに付与する。
+公開 job は事前に作成された VSIX artifact の checksum を検証し、`pnpm install --ignore-scripts` で lifecycle script を実行しない。
+外部 GitHub Actions は full-length commit SHA で固定する。

@@ -2,12 +2,20 @@
   "name": "llvm-analyzer-vscode",
   "displayName": "LLVM IR",
   "version": "0.0.1",
-  "private": true,
   "description": "LLVM IR language support with syntax highlighting and LSP features.",
   "categories": [
     "Programming Languages"
   ],
+  "homepage": "https://github.com/r4ai/llvm-analyzer#readme",
+  "bugs": {
+    "url": "https://github.com/r4ai/llvm-analyzer/issues"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/r4ai/llvm-analyzer.git",
+    "directory": "packages/vscode-extension"
+  },
   "publisher": "r4ai",
   "main": "./dist/extension.js",
   "scripts": {

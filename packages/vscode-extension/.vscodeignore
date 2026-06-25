@@ -1,8 +1,13 @@
+src/**
+test/**
 dist/test/**
 dist/**/*.map
 .vscode-test/**
-test/**
-src/**
+*.ts
+*.mjs
 esbuild.mjs
 tsconfig.json
 *.vsix
+*.vsix.sha256
+node_modules/**
+**/*.map

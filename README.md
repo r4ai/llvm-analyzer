@@ -58,6 +58,38 @@ pnpm --filter llvm-analyzer-vscode package
 
 生成物は `packages/vscode-extension/llvm-analyzer-vscode.vsix` です。
 
+### VSCode Marketplace への公開
+
+Marketplace 公開は [`.github/workflows/publish-vscode.yml`](.github/workflows/publish-vscode.yml) で行います。
+長期 PAT は使わず、GitHub Actions の OIDC token を Microsoft Entra の federated credential と交換し、`vsce publish --azure-credential` で公開します。
+
+公開ワークフローは次の方針です。
+
+| 項目         | 方針                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------------------------- |
+| 実行条件     | 手動実行、または prerelease ではない GitHub Release の公開                                                       |
+| 権限         | 既定は `contents: read`。Marketplace 公開 job だけ `id-token: write` を付与                                      |
+| 環境         | `vscode-marketplace` environment を使い、必要なら reviewer / protected branch を設定する                         |
+| 認証         | `vars.AZURE_CLIENT_ID` と `vars.AZURE_TENANT_ID` で Entra identity を指定し、secret は保存しない                 |
+| パッケージ   | 権限なしの job で VSIX を作成し、checksum を記録して artifact 化する                                             |
+| 公開         | 公開 job では artifact の checksum を検証し、依存 install は `--ignore-scripts` で lifecycle script を実行しない |
+| Actions 固定 | 外部 GitHub Actions は full-length commit SHA で固定する                                                         |
+
+Entra 側の federated credential は GitHub environment に紐づけます。
+このリポジトリでは subject を次の形に固定する想定です。
+
+```text
+repo:r4ai/llvm-analyzer:environment:vscode-marketplace
+```
+
+Marketplace 側では、同じ identity が `r4ai` publisher の拡張機能を公開できるように設定します。
+GitHub repository variables には次を設定します。
+
+| 変数              | 内容                                       |
+| ----------------- | ------------------------------------------ |
+| `AZURE_CLIENT_ID` | Entra application / managed identity の ID |
+| `AZURE_TENANT_ID` | Entra tenant ID                            |
+
 ### LLVM verifier 連携
 
 | 項目                 | 内容                                                                         |
