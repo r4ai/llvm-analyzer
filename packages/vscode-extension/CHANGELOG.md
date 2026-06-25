@@ -1,5 +1,11 @@
 # llvm-analyzer-vscode
 
+## 0.1.1
+
+### Patch Changes
+
+- Rename the Marketplace display name to `LLVM IR Analyzer` to avoid a duplicate extension listing name.
+
 ## 0.1.0
 
 ### Minor Changes
