@@ -2,9 +2,9 @@
 
 An LSP for LLVM IR (`.ll`) files.
 
-| Definition Jump & View               | Document Preview            |
-| ------------------------------------ | --------------------------- |
-| ![definition](assets/definition.png) | ![preview](assets/docs.png) |
+| Definition Jump & View                                                                         | Document Preview                                                                         |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| ![definition](https://github.com/user-attachments/assets/c1944acd-5c12-4f19-9bec-662f896e1c97) | ![docs](https://github.com/user-attachments/assets/a8db7919-ca9d-47d1-8465-41a8719c7050) |
 
 ## Features
 
