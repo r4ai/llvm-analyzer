@@ -86,6 +86,9 @@ pnpm changeset --empty
 Version PR を merge すると、同じ workflow が VSIX を作成し、Marketplace publish と GitHub Release 作成を行います。
 empty changeset だけの Version PR など、`packages/vscode-extension/package.json` の version が変わらない merge では publish しません。
 
+Version PR の作成には、GitHub repository settings の Actions 設定で「Allow GitHub Actions to create and approve pull requests」を有効にします。
+この設定を無効にすると、`changesets/action` が Pull Request API で拒否され、Release workflow の `Create Version PR` job が失敗します。
+
 ## VSCode Marketplace への公開
 
 Marketplace 公開の手動実行は [`.github/workflows/publish-vscode.yml`](../.github/workflows/publish-vscode.yml) で行います。

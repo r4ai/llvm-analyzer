@@ -34,6 +34,7 @@ description: Repository-specific release workflow for llvm-analyzer. Use when ad
 ## 安全性の前提
 
 - 外部 GitHub Actions は full-length commit SHA で固定する。
+- GitHub repository settings の Actions 設定で、`Allow GitHub Actions to create and approve pull requests` を有効にする。
 - `id-token: write` は Marketplace publish job だけに付与する。
 - VSIX 作成 job と publish job は分離し、publish job は checksum を検証する。
 - publish job の依存 install は `pnpm install --frozen-lockfile --ignore-scripts` にする。
