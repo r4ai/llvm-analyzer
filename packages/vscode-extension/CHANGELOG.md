@@ -1,5 +1,12 @@
 # llvm-analyzer-vscode
 
+## 0.1.3
+
+### Patch Changes
+
+- 474f15e: Use externally hosted README screenshots so they render on the VSCode Marketplace.
+- dbd161e: Translate README to English; Japanese version preserved as README-ja.md.
+
 ## 0.1.2
 
 ### Patch Changes
