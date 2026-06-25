@@ -96,7 +96,7 @@ jobs:
       - run: pnpm --filter llvm-analyzer-vscode package
       - name: Record VSIX checksum
         run: sha256sum packages/vscode-extension/llvm-analyzer-vscode.vsix > packages/vscode-extension/llvm-analyzer-vscode.vsix.sha256
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: llvm-analyzer-vscode-vsix
           path: |
@@ -123,7 +123,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: llvm-analyzer-vscode-vsix
           path: packages/vscode-extension
