@@ -42,7 +42,8 @@ AGENTS.md の古典派TDD（**探索 → Red → Green → Refactoring**）で�
 1. **roadmap更新**: [docs/roadmap.md](../../../docs/roadmap.md) の該当項目のチェックボックスを更新する。
 2. **design更新**: 設計判断が変わった／増えたら [docs/design.md](../../../docs/design.md) に反映する。
 3. **関連ドキュメント点検**: README やその他のドキュメントに古い記述が残っていないか確認する。
-4. **コミット**: 意味のある単位に分け、Conventional Commits でコミットする（`git-commit` スキルに従う）。
+4. **changeset追加**: 利用者へ届く変更は `pnpm changeset` で `llvm-analyzer-vscode` の changeset を追加する。release 不要の変更は `pnpm changeset --empty` を追加する。判断に迷う場合は [release-workflow](../release-workflow/SKILL.md) に従う。
+5. **コミット**: 意味のある単位に分け、Conventional Commits でコミットする（`git-commit` スキルに従う）。
    - 例: `feat(parser): add llvm ir lexer` / `docs: update roadmap`
 
 ## チェックリスト
@@ -53,4 +54,5 @@ AGENTS.md の古典派TDD（**探索 → Red → Green → Refactoring**）で�
 - [ ] `pnpm test` / `typecheck` / `lint` / `format` が全てグリーン
 - [ ] `docs/roadmap.md` のチェックボックスを更新した
 - [ ] 必要なら `docs/design.md` ・README を更新した
+- [ ] `pnpm changeset` または `pnpm changeset --empty` を追加した
 - [ ] Conventional Commits でコミットした
