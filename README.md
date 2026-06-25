@@ -87,7 +87,7 @@ Marketplace 公開の手動実行は [`.github/workflows/publish-vscode.yml`](.g
 | 実行条件     | Version PR merge 後の `main` push、手動実行、または prerelease ではない GitHub Release の公開                    |
 | 権限         | 既定は `contents: read`。Marketplace 公開 job だけ `id-token: write` を付与                                      |
 | 環境         | `vscode-marketplace` environment を使い、必要なら reviewer / protected branch を設定する                         |
-| 認証         | `vars.AZURE_CLIENT_ID` と `vars.AZURE_TENANT_ID` で Entra identity を指定し、secret は保存しない                 |
+| 認証         | `secrets.AZURE_CLIENT_ID` と `secrets.AZURE_TENANT_ID` で Entra identity を指定する                              |
 | パッケージ   | 権限なしの job で VSIX を作成し、checksum を記録して artifact 化する                                             |
 | 公開         | 公開 job では artifact の checksum を検証し、依存 install は `--ignore-scripts` で lifecycle script を実行しない |
 | Actions 固定 | 外部 GitHub Actions は full-length commit SHA で固定する                                                         |
@@ -100,7 +100,7 @@ repo:r4ai/llvm-analyzer:environment:vscode-marketplace
 ```
 
 Marketplace 側では、同じ identity が `r4ai` publisher の拡張機能を公開できるように設定します。
-GitHub repository variables には次を設定します。
+GitHub `vscode-marketplace` environment secrets には次を設定します。
 
 | 変数              | 内容                                       |
 | ----------------- | ------------------------------------------ |

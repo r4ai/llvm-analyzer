@@ -38,7 +38,7 @@ description: Repository-specific release workflow for llvm-analyzer. Use when ad
 - VSIX 作成 job と publish job は分離し、publish job は checksum を検証する。
 - publish job の依存 install は `pnpm install --frozen-lockfile --ignore-scripts` にする。
 - `vscode-marketplace` environment に reviewer / protected branch を設定する。
-- GitHub repository variables に `AZURE_CLIENT_ID` と `AZURE_TENANT_ID` を設定する。
+- GitHub `vscode-marketplace` environment secrets に `AZURE_CLIENT_ID` と `AZURE_TENANT_ID` を設定する。
 - Entra federated credential の subject は `repo:r4ai/llvm-analyzer:environment:vscode-marketplace` に固定する。
 
 ## 関連ファイル
