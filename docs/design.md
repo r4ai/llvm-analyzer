@@ -33,7 +33,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - **ast**: ノード型定義（Module / TypeDefinition / GlobalVariable / ComdatDefinition / ModuleAsm / UseListOrderDirective / FunctionDefinition / FunctionDeclaration / BasicBlock / Instruction / DebugRecord / IdentifierRef / MetadataDefinition…）。各ノードに `range`。
 - **parser**: 再帰下降パーサ。**エラー回復付き**（1行の失敗で全体を止めず `UnknownEntry`＋診断で継続）で構文エラーを診断として収集。
   - **粒度は「構造重視・命令は粗く」**: トップレベル構造は型付きノードへ分解するが、命令内部は構造化せず、出現する識別子参照（`@`/`%`/`!`/`#`/`$`・ラベル）を {@link IdentifierRef} として収集するにとどめる。定義/参照位置が取れれば LSP の definition/references/documentSymbol/foldingRange が成立する。型構文は専用の type パーサで段階的に扱い、各オペコード専用ノードは将来フェーズとする。
-  - **走査方針**: `define` 本体は `{`...`}` のブレース対応でブロックを切り出す。関数本体の命令・debug record・use-list order directive と、その他のトップレベルは通常 1 行 1 文として扱うが、`[]` / `{}` / `()` や改行を含む文字列で複数行にまたがる場合は閉じるまで 1 要素として集める。
+  - **走査方針**: `define` 本体は `{`...`}` のブレース対応でブロックを切り出す。関数本体の命令・debug record・use-list order directive と、その他のトップレベルは通常 1 行 1 文として扱うが、`[]` / `{}` / `()` / `<>` や改行を含む文字列で複数行にまたがる場合は閉じるまで 1 要素として集める。
   - 各トップレベルエントリは共通で `defines?`（導入する名前）と `references`（本体の参照列）を持ち、analyzer のシンボル表/定義参照インデックスの直接の入力になる。
 - **type**: LLVM IR 型構文を AST 化する純粋パーサ。
   - 公開API: `parseLlvmType(source: string): { type?: LlvmType; diagnostics: ParseDiagnostic[] }`、`formatLlvmType(type): string | undefined`。
