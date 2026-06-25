@@ -205,9 +205,12 @@ export const parseModule = (source: string): ParseResult => {
   const collectFunction = (start: number): { signature: Token[]; body: Token[]; next: number } => {
     let open = start;
     let signatureDepth = 0;
+    let sawFunctionName = false;
     while (open < tokens.length && tokens[open]?.kind !== "Eof") {
-      const value = tokens[open]?.value;
-      if (value === "{" && signatureDepth === 0) break;
+      const token = tokens[open];
+      const value = token?.value;
+      if (value === "{" && signatureDepth === 0 && sawFunctionName) break;
+      if (token?.kind === "GlobalIdentifier") sawFunctionName = true;
       signatureDepth = updateTypeDelimiterDepth(signatureDepth, value);
       open += 1;
     }
