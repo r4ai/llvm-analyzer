@@ -1,5 +1,11 @@
 # llvm-analyzer-vscode
 
+## 0.1.2
+
+### Patch Changes
+
+- Use the root README as the VSCode Marketplace README.
+
 ## 0.1.1
 
 ### Patch Changes
