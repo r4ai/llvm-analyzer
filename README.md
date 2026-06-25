@@ -2,23 +2,23 @@
 
 An LSP for LLVM IR (`.ll`) files.
 
-| Definition Jump & View                       | Document Preview            |
-| -------------------------------------------- | --------------------------- |
-| ![definition](assets/definition.png)         | ![preview](assets/docs.png) |
+| Definition Jump & View               | Document Preview            |
+| ------------------------------------ | --------------------------- |
+| ![definition](assets/definition.png) | ![preview](assets/docs.png) |
 
 ## Features
 
-| Category       | Feature                                                                                                                 |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Display        | Syntax highlighting, Semantic Tokens, Folding Range                                                                     |
+| Category       | Feature                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Display        | Syntax highlighting, Semantic Tokens, Folding Range                                                                    |
 | Navigation     | Declarative hover, opcode, type, attribute hover, go to definition, find references, Document Symbol, Workspace Symbol |
-| Editing        | Completion, Rename, Format, Range Format                                                                                |
-| Diagnostics    | Parser diagnostics, analyzer diagnostics, external LLVM verifier diagnostics                                            |
-| Inlay Hints    | Shows inferred types for SSA values                                                                                     |
+| Editing        | Completion, Rename, Format, Range Format                                                                               |
+| Diagnostics    | Parser diagnostics, analyzer diagnostics, external LLVM verifier diagnostics                                           |
+| Inlay Hints    | Shows inferred types for SSA values                                                                                    |
 | File Links     | Document Link to open real files from `source_filename` and `!DIFile`                                                  |
-| Call Hierarchy | Traces direct calls via `call`, `invoke`, and `callbr`                                                                  |
-| Control Flow   | Command to display the current function's Control Flow Graph as Mermaid                                                 |
-| Quick Fix      | Replace with nearby undefined global/label names, delete instructions after terminators                                 |
+| Call Hierarchy | Traces direct calls via `call`, `invoke`, and `callbr`                                                                 |
+| Control Flow   | Command to display the current function's Control Flow Graph as Mermaid                                                |
+| Quick Fix      | Replace with nearby undefined global/label names, delete instructions after terminators                                |
 
 ## Coverage
 
@@ -48,21 +48,21 @@ You can replace the verifier command with something like `opt -passes=verify -di
 
 ## Configuration
 
-| Setting                                       | Description                                                         |
-| --------------------------------------------- | ------------------------------------------------------------------- |
-| `llvm-analyzer.verifier.enabled`              | Enable external verifier integration.                               |
-| `llvm-analyzer.verifier.command`              | Command to run as the verifier.                                     |
-| `llvm-analyzer.verifier.args`                 | Arguments to pass to the verifier command.                          |
-| `llvm-analyzer.verifier.debounceMs`           | Wait time before starting the verifier after editing stops.         |
-| `llvm-analyzer.verifier.timeoutMs`            | Time before the verifier execution is killed.                       |
-| `llvm-analyzer.verifier.maxFileBytes`         | Maximum file size for automatic verifier execution.                 |
-| `llvm-analyzer.diagnostics.parser.enabled`    | Enable parser-based syntax diagnostics.                             |
-| `llvm-analyzer.diagnostics.parser.severity`   | Severity of parser-based syntax diagnostics.                        |
-| `llvm-analyzer.diagnostics.analyzer.enabled`  | Enable analyzer-based semantic diagnostics.                         |
-| `llvm-analyzer.diagnostics.analyzer.severity` | Severity of analyzer-based semantic diagnostics.                    |
-| `llvm-analyzer.diagnostics.verifier.enabled`  | Enable external verifier diagnostics.                               |
-| `llvm-analyzer.diagnostics.verifier.severity` | Severity of external verifier diagnostics.                          |
-| `llvm-analyzer.inlayHints.types.enabled`      | Show inferred type Inlay Hints for SSA values.                      |
+| Setting                                       | Description                                                 |
+| --------------------------------------------- | ----------------------------------------------------------- |
+| `llvm-analyzer.verifier.enabled`              | Enable external verifier integration.                       |
+| `llvm-analyzer.verifier.command`              | Command to run as the verifier.                             |
+| `llvm-analyzer.verifier.args`                 | Arguments to pass to the verifier command.                  |
+| `llvm-analyzer.verifier.debounceMs`           | Wait time before starting the verifier after editing stops. |
+| `llvm-analyzer.verifier.timeoutMs`            | Time before the verifier execution is killed.               |
+| `llvm-analyzer.verifier.maxFileBytes`         | Maximum file size for automatic verifier execution.         |
+| `llvm-analyzer.diagnostics.parser.enabled`    | Enable parser-based syntax diagnostics.                     |
+| `llvm-analyzer.diagnostics.parser.severity`   | Severity of parser-based syntax diagnostics.                |
+| `llvm-analyzer.diagnostics.analyzer.enabled`  | Enable analyzer-based semantic diagnostics.                 |
+| `llvm-analyzer.diagnostics.analyzer.severity` | Severity of analyzer-based semantic diagnostics.            |
+| `llvm-analyzer.diagnostics.verifier.enabled`  | Enable external verifier diagnostics.                       |
+| `llvm-analyzer.diagnostics.verifier.severity` | Severity of external verifier diagnostics.                  |
+| `llvm-analyzer.inlayHints.types.enabled`      | Show inferred type Inlay Hints for SSA values.              |
 
 ## License
 
