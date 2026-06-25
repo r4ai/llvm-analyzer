@@ -33,12 +33,4 @@ LLVM IR (`.ll`) 向けの VSCode 拡張機能。
 - `llvm-analyzer.diagnostics.verifier.severity`: external verifier 由来の診断の重大度。
 - `llvm-analyzer.inlayHints.types.enabled`: SSA 値の推定型 inlay hint を有効にする。
 
-## 開発
-
-`test:e2e` は VSCode Extension Host で fixture workspace を開き、主要 LSP 経路を VSCode command 経由で確認します。
-
-```sh
-pnpm --filter llvm-analyzer-vscode build
-pnpm --filter llvm-analyzer-vscode test:e2e
-pnpm --filter llvm-analyzer-vscode package
-```
+開発者向けの情報は [docs/development.md](../../docs/development.md) にあります。
