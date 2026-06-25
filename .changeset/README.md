@@ -1,19 +1,19 @@
 # Changesets
 
-このディレクトリには、リリース対象の変更を記録する changeset を置きます。
+This directory contains changesets that record changes to be included in a release.
 
-通常の利用:
+Normal usage:
 
 ```sh
 pnpm changeset
 ```
 
-リリース不要の変更では empty changeset を作ります。
+For changes that do not need a release, create an empty changeset:
 
 ```sh
 pnpm changeset --empty
 ```
 
-このリポジトリで Marketplace に公開する対象は `llvm-analyzer-vscode` です。
-parser / analyzer / language-server の変更が VSCode 拡張として利用者に届く場合は、changeset に `llvm-analyzer-vscode` を含めます。
-内部 package も version / changelog は作れますが、公開判定と GitHub Release tag は `llvm-analyzer-vscode` の version だけを使います。
+The package published to the Marketplace from this repository is `llvm-analyzer-vscode`.
+If changes to parser / analyzer / language-server are delivered to users as a VSCode extension, include `llvm-analyzer-vscode` in the changeset.
+Internal packages can also have versions and changelogs, but the publish decision and GitHub Release tag are determined solely by the `llvm-analyzer-vscode` version.
