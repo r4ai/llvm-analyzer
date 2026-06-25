@@ -1,7 +1,10 @@
 # llvm-analyzer
 
-`llvm-analyzer` は LLVM IR (`.ll`) 向けの VSCode 拡張機能です。
-シンタックスハイライトと Language Server により、生成済み IR や手書き IR を読みやすくします。
+LLVM IR (`.ll`) 用の LSP です。
+
+| 定義ジャンプ・表示                   | ドキュメントの表示          |
+| ------------------------------------ | --------------------------- |
+| ![definition](assets/definition.png) | ![preview](assets/docs.png) |
 
 ## 機能
 
