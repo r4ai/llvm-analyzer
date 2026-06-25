@@ -4,7 +4,7 @@
  * 粒度は「構造重視・命令は粗く」（[plan](../../../../docs/plans/2026-06-22-parser-ast.md) 参照）。
  * トップレベル構造は型付きノードに分解するが、命令や型の内部は構造化せず、出現する識別子参照を
  * 収集するにとどめる。`define` 本体は `{`...`}` ブロックとして走査し、それ以外のトップレベルは
- * 通常行単位だが、括弧が複数行にまたがる場合は閉じるまで 1 エントリとして集める。
+ * 通常行単位だが、区切り記号が複数行にまたがる場合は閉じるまで 1 エントリとして集める。
  * 1 エントリのパースに失敗しても診断を積んで次へ進む（エラー回復）ため、不正入力でも全体は止まらない。
  */
 import { type Range, type Token, tokenize } from "../lexer/index.ts";
@@ -367,10 +367,12 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
   return blocks;
 };
 
-/** 括弧トークンからネスト深さを更新する。 */
+/** 複数行要素を囲む区切り記号からネスト深さを更新する。 */
 const updateDelimiterDepth = (depth: number, value: string): number => {
-  if (value === "{" || value === "[" || value === "(") return depth + 1;
-  if (value === "}" || value === "]" || value === ")") return Math.max(0, depth - 1);
+  if (value === "{" || value === "[" || value === "(" || value === "<") return depth + 1;
+  if (value === "}" || value === "]" || value === ")" || value === ">") {
+    return Math.max(0, depth - 1);
+  }
   return depth;
 };
 

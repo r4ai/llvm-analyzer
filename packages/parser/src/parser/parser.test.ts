@@ -117,6 +117,22 @@ describe("parseModule: グローバル変数", () => {
     expect(diagnostics).toEqual([]);
   });
 
+  it("複数行のベクトル初期化子を1つの GlobalVariable にする", () => {
+    const src = [
+      "@v = global <4 x i32> <",
+      "  i32 1,",
+      "  i32 2,",
+      "  i32 3,",
+      "  i32 4",
+      ">",
+    ].join("\n");
+    const { ast, diagnostics } = parseModule(src);
+
+    expect(ast.entries).toHaveLength(1);
+    expect(ast.entries[0]?.kind).toBe("GlobalVariable");
+    expect(diagnostics).toEqual([]);
+  });
+
   it("改行を含む文字列定数の後続トークンまで1つの GlobalVariable にする", () => {
     const src = '@s = private constant [8 x i8] c"foo\\0A\nbar\\00", align 1';
     const { ast, diagnostics } = parseModule(src);
@@ -283,6 +299,28 @@ describe("parseModule: 関数定義", () => {
         .filter((o) => o.kind === "LabelRef")
         .map((o) => o.name),
     ).toEqual(["%default", "%zero", "%one"]);
+  });
+
+  it("複数行ベクトル定数を含む命令を1つの命令として扱う", () => {
+    const fn = [
+      "define void @f() {",
+      "entry:",
+      "  %v = insertelement <4 x i32> <",
+      "    i32 0,",
+      "    i32 1,",
+      "    i32 2,",
+      "    i32 3",
+      "  >, i32 4, i32 0",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(entry.blocks[0]?.instructions.map((instruction) => instruction.opcode)).toEqual([
+      "insertelement",
+      "ret",
+    ]);
   });
 
   it("関数スコープの use-list order directive を命令にしない", () => {

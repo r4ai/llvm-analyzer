@@ -210,6 +210,19 @@ describe("LSP 機能アダプタ", () => {
     expect(edit?.changes?.[snapshot.uri]?.map((change) => change.newText)).toEqual(["@renamed"]);
   });
 
+  it("rename は別種 sigil 付きの新名をシンボル種別に合わせて補正する", () => {
+    const globalEdit = getRenameEdit(snapshot, { line: 1, character: 1 }, "%renamed");
+    const localEdit = getRenameEdit(snapshot, { line: 4, character: 4 }, "@total");
+
+    expect(globalEdit?.changes?.[snapshot.uri]?.map((change) => change.newText)).toEqual([
+      "@renamed",
+    ]);
+    expect(localEdit?.changes?.[snapshot.uri]?.map((change) => change.newText)).toEqual([
+      "%total",
+      "%total",
+    ]);
+  });
+
   it("rename はラベル定義とラベル参照の置換文字列を分ける", () => {
     const edit = getRenameEdit(snapshot, { line: 6, character: 1 }, "%done");
 

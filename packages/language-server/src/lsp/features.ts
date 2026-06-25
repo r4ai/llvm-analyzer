@@ -706,13 +706,16 @@ const normalizeRenameForRef = (
   newName: string,
 ): string => {
   if (symbol.kind === "label") {
-    const bareName = newName.replace(/^%/u, "");
+    const bareName = stripLeadingSigil(newName);
     return sameRange(ref.range, symbol.definition.range) ? bareName : `%${bareName}`;
   }
   const sigil = symbol.name.match(/^[@%!#$]/u)?.[0];
-  if (!sigil || newName.startsWith(sigil)) return newName;
-  return `${sigil}${newName}`;
+  if (!sigil) return newName;
+  if (newName.startsWith(sigil)) return newName;
+  return `${sigil}${stripLeadingSigil(newName)}`;
 };
+
+const stripLeadingSigil = (name: string): string => name.replace(/^[@%!#$]/u, "");
 
 const sameRange = (a: Range, b: Range): boolean =>
   a.start.offset === b.start.offset && a.end.offset === b.end.offset;
