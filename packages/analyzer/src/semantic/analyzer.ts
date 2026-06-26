@@ -671,8 +671,21 @@ const isWithinTopLevelTypeDefinition = (source: string, ref: IdentifierRef): boo
     previousTopLevelLocal < 0 ? (source.startsWith("%") ? 0 : -1) : previousTopLevelLocal + 1;
   if (start < 0) return false;
   const statementPrefix = source.slice(start, ref.range.start.offset);
-  if (!/^%[-A-Za-z$._0-9"]+\s*=\s*type\b/su.test(statementPrefix)) return false;
+  if (!startsWithTypeDefinition(statementPrefix)) return false;
   return !/\ndefine\b/u.test(statementPrefix);
+};
+
+/** `%T = type` の導入部を token ベースで判定する。quoted 名や空白入り名も lexer に委ねる。 */
+const startsWithTypeDefinition = (source: string): boolean => {
+  const tokens = tokenize(source).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  return (
+    tokens[0]?.kind === "LocalIdentifier" &&
+    tokens[1]?.value === "=" &&
+    tokens[2]?.kind === "Keyword" &&
+    tokens[2].value === "type"
+  );
 };
 
 /**

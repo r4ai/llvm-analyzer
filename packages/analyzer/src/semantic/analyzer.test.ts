@@ -261,6 +261,14 @@ describe("analyze: 定義参照インデックス", () => {
     expect(model.definitionAt(posOf(source, "%Inner", 1))?.kind).toBe("type");
     expect(model.diagnostics()).toEqual([]);
   });
+
+  it("引用符付きの複数行型定義内にある名前付き型参照を型定義へ解決する", () => {
+    const source = ["%Inner = type { i32 }", '%"Outer Type" = type {', "  %Inner", "}"].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%Inner", 1))?.kind).toBe("type");
+    expect(model.diagnostics()).toEqual([]);
+  });
 });
 
 describe("analyze: 診断", () => {

@@ -174,6 +174,42 @@ describe("parseModule: 関数定義", () => {
     expect(entry?.defines?.name).toBe("@main");
   });
 
+  it("集約型を返す関数の戻り値型を本体開始と誤認しない", () => {
+    const fn = [
+      "define { i32, i32 } @pair() {",
+      "entry:",
+      "  ret { i32, i32 } zeroinitializer",
+      "}",
+    ].join("\n");
+    const { ast, diagnostics } = parseModule(fn);
+    const entry = ast.entries[0];
+
+    expect(diagnostics).toEqual([]);
+    expect(ast.entries).toHaveLength(1);
+    expect(entry?.kind).toBe("FunctionDefinition");
+    expect(entry?.defines?.name).toBe("@pair");
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+    expect(entry.blocks[0]?.instructions.map((instruction) => instruction.opcode)).toEqual(["ret"]);
+  });
+
+  it("prefix の集約型・集約定数を関数本体開始と誤認しない", () => {
+    const fn = [
+      "define void @f() prefix { i32, i32 } { i32 1, i32 2 } {",
+      "entry:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const { ast, diagnostics } = parseModule(fn);
+    const entry = ast.entries[0];
+
+    expect(diagnostics).toEqual([]);
+    expect(ast.entries).toHaveLength(1);
+    expect(entry?.kind).toBe("FunctionDefinition");
+    expect(entry?.defines?.name).toBe("@f");
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+    expect(entry.blocks[0]?.instructions.map((instruction) => instruction.opcode)).toEqual(["ret"]);
+  });
+
   it("ラベルごとに基本ブロックへ分割する", () => {
     const entry = parseModule(src).ast.entries[0];
     if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");

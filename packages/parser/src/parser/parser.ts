@@ -205,9 +205,18 @@ export const parseModule = (source: string): ParseResult => {
   const collectFunction = (start: number): { signature: Token[]; body: Token[]; next: number } => {
     let open = start;
     let signatureDepth = 0;
+    let sawFunctionName = false;
     while (open < tokens.length && tokens[open]?.kind !== "Eof") {
-      const value = tokens[open]?.value;
-      if (value === "{" && signatureDepth === 0) break;
+      const token = tokens[open];
+      const value = token?.value;
+      if (
+        value === "{" &&
+        signatureDepth === 0 &&
+        sawFunctionName &&
+        isFunctionBodyOpen(tokens, open)
+      )
+        break;
+      if (token?.kind === "GlobalIdentifier") sawFunctionName = true;
       signatureDepth = updateTypeDelimiterDepth(signatureDepth, value);
       open += 1;
     }
@@ -383,6 +392,23 @@ const updateTypeDelimiterDepth = (depth: number, value: string | undefined): num
     return Math.max(0, depth - 1);
   }
   return depth;
+};
+
+/**
+ * `define` シグネチャ中の `{` が関数本体の開始かを判定する。
+ *
+ * `prefix { i32, i32 } { i32 1, i32 2 }` のような braced 型・定数は、
+ * 中身が型や定数から始まるため本体として扱わない。
+ */
+const isFunctionBodyOpen = (tokens: readonly Token[], index: number): boolean => {
+  const next = tokens[index + 1];
+  if (!next || next.kind === "Eof" || next.value === "}") return true;
+  if (next.kind === "Label" || next.kind === "Opcode" || next.kind === "DebugRecord") return true;
+  if (next.kind === "String" && tokens[index + 2]?.value === ":") return true;
+  if (next.kind === "LocalIdentifier" && tokens[index + 2]?.value === "=") return true;
+  return (
+    next.kind === "Keyword" && (next.value === "uselistorder" || next.value === "uselistorder_bb")
+  );
 };
 
 /** `body` 内の `start` から論理行のトークンを集める（本体用の行分割）。 */
