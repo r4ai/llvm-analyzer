@@ -47,7 +47,7 @@ jobs:
     needs: changesets
     if: needs.changesets.outputs.has-changesets == 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       should-release: ${{ steps.version.outputs.should-release }}
       version: ${{ steps.version.outputs.version }}
