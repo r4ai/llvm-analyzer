@@ -22,7 +22,7 @@ parser と analyzer は VSCode API に依存しません。
 
 ## 開発環境
 
-Node.js、pnpm、lefthook、pinact は [Devbox](https://www.jetify.com/devbox) で管理します。
+Node.js、pnpm、lefthook、pinact、clang、llvm-as は [Devbox](https://www.jetify.com/devbox) で管理します。
 
 ```sh
 devbox shell
@@ -31,6 +31,8 @@ pnpm install
 
 `pnpm install` 時に lefthook の Git hook が設定されます。
 一時的なコマンド実行だけなら `devbox run -- pnpm test` のように実行します。
+clang 生成IRの結合テストも `pnpm test` に含まれるため、通常は `devbox run -- pnpm test` で確認します。
+devbox外で clang または llvm-as が見つからない場合、この結合テストだけはスキップされます。
 
 ## 動作確認
 

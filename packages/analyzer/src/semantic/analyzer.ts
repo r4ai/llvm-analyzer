@@ -314,6 +314,7 @@ const makeFunctionScope = (entry: FunctionDefinition): Scope => ({
 const isFunctionParameterRef = (source: string | undefined, ref: IdentifierRef): boolean => {
   if (ref.kind !== "LocalRef") return false;
   if (!source) return true;
+  if (isAttributeTypeArgumentRef(source, ref)) return false;
   const after = source.slice(ref.range.end.offset).trimStart();
   if (after.startsWith("%") || after.startsWith("@")) return false;
   if (after.startsWith("*")) {
@@ -604,6 +605,8 @@ const resolveTypePositionRef = (
 /** 粗いトークン文脈から、ローカル識別子が型名として現れているかを判定する。 */
 const isTypePositionRef = (source: string | undefined, ref: IdentifierRef): boolean => {
   if (!source || ref.kind !== "LocalRef") return false;
+  if (isAttributeTypeArgumentRef(source, ref)) return true;
+  if (isGetElementPtrTypeOperandRef(source, ref)) return true;
   const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
   const lineEndIndex = source.indexOf("\n", ref.range.end.offset);
   const lineEnd = lineEndIndex < 0 ? source.length : lineEndIndex;
@@ -627,6 +630,14 @@ const isTypePositionRef = (source: string | undefined, ref: IdentifierRef): bool
 
 const TYPE_PRECEDING_KEYWORDS = new Set(["constant", "global", "to", "type"]);
 
+const ATTRIBUTE_TYPE_ARGUMENT_KEYWORDS = new Set([
+  "byval",
+  "sret",
+  "preallocated",
+  "inalloca",
+  "elementtype",
+]);
+
 const VALUE_TOKEN_AFTER_TYPE_KINDS = new Set<Token["kind"]>([
   "LocalIdentifier",
   "GlobalIdentifier",
@@ -638,6 +649,60 @@ const VALUE_TOKEN_AFTER_TYPE_KINDS = new Set<Token["kind"]>([
 /** 型名の直後に値が続く構文かを判定する。 */
 const isValueTokenAfterType = (token: Token): boolean =>
   VALUE_TOKEN_AFTER_TYPE_KINDS.has(token.kind);
+
+/** `byval(%T)` のような属性引数内にある型参照かを判定する。 */
+const isAttributeTypeArgumentRef = (source: string, ref: IdentifierRef): boolean => {
+  const context = tokenContextOnLine(source, ref);
+  if (!context) return false;
+  const { tokens, index } = context;
+  let parenDepth = 0;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const token = tokens[i];
+    if (!token) continue;
+    if (token.value === ")") {
+      parenDepth += 1;
+      continue;
+    }
+    if (token.value !== "(") continue;
+    if (parenDepth > 0) {
+      parenDepth -= 1;
+      continue;
+    }
+    return ATTRIBUTE_TYPE_ARGUMENT_KEYWORDS.has(tokens[i - 1]?.value ?? "");
+  }
+  return false;
+};
+
+/** `getelementptr ... %T, ptr ...` の先頭型オペランドかを判定する。 */
+const isGetElementPtrTypeOperandRef = (source: string, ref: IdentifierRef): boolean => {
+  const context = tokenContextOnLine(source, ref);
+  if (!context) return false;
+  const { tokens, index } = context;
+  const opcodeIndex = tokens.findIndex(
+    (token, candidateIndex) =>
+      candidateIndex < index && token.kind === "Opcode" && token.value === "getelementptr",
+  );
+  if (opcodeIndex < 0) return false;
+  return !tokens.slice(opcodeIndex + 1, index).some((token) => token.value === ",");
+};
+
+/** 参照が現れる行をtokenizeし、行内での該当token位置を返す。 */
+const tokenContextOnLine = (
+  source: string,
+  ref: IdentifierRef,
+): { readonly tokens: readonly Token[]; readonly index: number } | undefined => {
+  const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
+  const lineEndIndex = source.indexOf("\n", ref.range.end.offset);
+  const lineEnd = lineEndIndex < 0 ? source.length : lineEndIndex;
+  const tokens = tokenize(source.slice(lineStart, lineEnd)).filter(
+    (token) => token.kind !== "Eof" && token.kind !== "Comment",
+  );
+  const relativeOffset = ref.range.start.offset - lineStart;
+  const index = tokens.findIndex(
+    (token) => token.range.start.offset === relativeOffset && token.value === ref.name,
+  );
+  return index < 0 ? undefined : { tokens, index };
+};
 
 /** 複数行の `%T = type { ... }` 内にある型参照かを保守的に判定する。 */
 const isWithinTopLevelTypeDefinition = (source: string, ref: IdentifierRef): boolean => {

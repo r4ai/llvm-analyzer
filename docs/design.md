@@ -54,7 +54,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - **診断**: 未定義値の参照、重複定義、同一命令内の自己参照、終端命令後の通常命令など（LLVM verifier 全体は再実装しない）。metadata attachment key、関数宣言の引数名、関数スコープの use-list order directive など、LangRef 上の非参照・非命令は誤診断しない。language-server で parser の構文診断とマージし、parser / analyzer / external verifier ごとに有効化と severity を適用する。
 - **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
 - **CFG / 呼び出し情報**: 関数単位で basic block successor と直接呼び出し先を抽出する。CFG は `br` / `switch` / `indirectbr` / `invoke` / `callbr` の `label %bb` から静的に分かる範囲を対象にし、間接分岐や関数ポインタの完全解決は行わない。Mermaid 出力は analyzer の純粋関数で生成する。
-- **ファイル参照候補**: `source_filename` と `!DIFile(filename:, directory:)` から、エディタ上でリンク化できるファイルパス候補を抽出する。存在確認と URI 解決は language-server 側の副作用として分離し、コメント内 URL や任意文字列は対象にしない。
+- **ファイル参照候補**: `source_filename` と `!DIFile(filename:, directory:)` から、エディタ上でリンク化できるファイルパス候補を抽出する。存在確認と URI 解決は language-server 側の副作用として分離し、コメント内 URL や任意文字列は対象にしない。リンク先は workspace folder または IR ファイルのディレクトリ配下に限定する。
 - オペコード/型/属性のドキュメント辞書を持ち、Hover/Completion で再利用。
 - 公開API例: `analyze(ast, { source }): SemanticModel`、`SemanticModel.definitionAt(pos)` / `referencesOf(symbol)` / `symbolAt(pos)` / `documentSymbols()` / `diagnostics()`
 
@@ -77,7 +77,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   - `inlayHint` ← 型構文モデル + SSA値の推定型。初期実装では parameter / local の定義名直後に `: type` を表示し、`llvm-analyzer.inlayHints.types.enabled` で切り替える。
   - `workspace/symbol` ← ワークスペース索引。`@function` / `@global` / `%type` / `!metadata` / 属性グループなどのトップレベル定義を返す
   - `callHierarchy/*` ← 直接呼び出し索引。`call` / `invoke` / `callbr` の `@callee` だけを扱い、間接呼び出しは解決しない
-  - `documentLink` ← `source_filename` / debug metadata のファイル参照候補。IR ファイルのディレクトリと workspace folder を基準に相対パスを解決し、実在するローカルファイルだけを返す
+  - `documentLink` ← `source_filename` / debug metadata のファイル参照候補。IR ファイルのディレクトリと workspace folder を基準に相対パスを解決し、それらの配下にある実在ローカルファイルだけを返す
   - `formatting` / `rangeFormatting` ← `formatLlvmIr` を使った空白・インデント edit。rangeFormatting は指定範囲と交差する行全体だけを置き換える
   - `codeAction` ← stable diagnostic code と安全な修正候補。初期実装では未定義グローバル・未定義ラベルの近い既存名への置換と、終端命令後の通常命令削除だけを quick fix として返す
 

@@ -45,6 +45,8 @@ If `llvm-as` is not available, only external verifier diagnostics are suppressed
 Parser diagnostics and analyzer diagnostics continue to work.
 
 You can replace the verifier command with something like `opt -passes=verify -disable-output -` by changing `llvm-analyzer.verifier.command` and `llvm-analyzer.verifier.args`.
+Because these settings can execute external tools, the extension requires a trusted VS Code workspace.
+Because these settings can execute external tools, the extension requires a trusted VS Code workspace.
 
 ## Configuration
 

@@ -1,6 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.5/.schema/devbox.schema.json",
-  "packages": ["nodejs@24", "pnpm@11.8.0", "pinact@4.0.0", "lefthook@2.1.5"],
+  "packages": [
+    "nodejs@24",
+    "pnpm@11.8.0",
+    "pinact@4.0.0",
+    "lefthook@2.1.5",
+    "clang@21.1.8",
+    "llvm_21@21.1.8"
+  ],
   "shell": {
     "init_hook": [],
     "scripts": {}

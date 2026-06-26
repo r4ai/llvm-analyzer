@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, normalize } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { collectFileReferenceCandidates } from "@llvm-analyzer/analyzer";
 import type { DocumentLink, Range as LspRange } from "vscode-languageserver";
@@ -12,6 +12,8 @@ export interface DocumentLinkOptions {
 
 /** documentLink provider の capability 宣言。 */
 export const documentLinkProviderCapability = { resolveProvider: false };
+
+const MAX_DOCUMENT_LINK_CANDIDATES = 512;
 
 /**
  * `source_filename` と debug metadata のファイル参照を DocumentLink へ変換する。
@@ -29,9 +31,15 @@ export const getDocumentLinks = async (
 ): Promise<DocumentLink[]> => {
   const fileExists = options.fileExists ?? defaultFileExists;
   const bases = resolutionBases(snapshot.uri, options.workspaceFolderUris);
-  const candidates = collectFileReferenceCandidates(snapshot.parse.ast, snapshot.text);
+  const candidates = collectFileReferenceCandidates(snapshot.parse.ast, snapshot.text).slice(
+    0,
+    MAX_DOCUMENT_LINK_CANDIDATES,
+  );
+  const existsCache = new Map<string, Promise<boolean>>();
   const targetPaths = await Promise.all(
-    candidates.map((candidate) => firstExistingPath(candidate.path, bases, fileExists)),
+    candidates.map((candidate) =>
+      firstExistingPath(candidate.path, bases, fileExists, existsCache),
+    ),
   );
 
   return candidates.flatMap((candidate, index) => {
@@ -51,12 +59,48 @@ const firstExistingPath = async (
   candidatePath: string,
   bases: readonly string[],
   fileExists: (filePath: string) => Promise<boolean>,
+  existsCache: Map<string, Promise<boolean>>,
 ): Promise<string | undefined> => {
-  const paths = isAbsolute(candidatePath)
-    ? [normalize(candidatePath)]
-    : bases.map((base) => normalize(join(base, candidatePath)));
-  const existsResults = await Promise.all(paths.map((filePath) => fileExists(filePath)));
-  return paths.find((_filePath, index) => existsResults[index] === true);
+  const paths = candidatePathsWithinBases(candidatePath, bases);
+  const results = await Promise.all(
+    paths.map(async (filePath) => ({
+      filePath,
+      exists: await cachedFileExists(filePath, fileExists, existsCache),
+    })),
+  );
+  return results.find((result) => result.exists)?.filePath;
+};
+
+const cachedFileExists = (
+  filePath: string,
+  fileExists: (filePath: string) => Promise<boolean>,
+  existsCache: Map<string, Promise<boolean>>,
+): Promise<boolean> => {
+  const existing = existsCache.get(filePath);
+  if (existing) return existing;
+  const exists = fileExists(filePath);
+  existsCache.set(filePath, exists);
+  return exists;
+};
+
+const candidatePathsWithinBases = (candidatePath: string, bases: readonly string[]): string[] => {
+  if (bases.length === 0) return [];
+  if (isAbsolute(candidatePath)) {
+    const absolutePath = resolve(candidatePath);
+    return bases.some((base) => isWithinBase(absolutePath, base)) ? [absolutePath] : [];
+  }
+  return bases
+    .map((base) => resolve(join(base, candidatePath)))
+    .filter(
+      (filePath, index, all) =>
+        isWithinBase(filePath, bases[index] ?? "") && all.indexOf(filePath) === index,
+    );
+};
+
+const isWithinBase = (filePath: string, base: string): boolean => {
+  const normalizedBase = resolve(base);
+  const relation = relative(normalizedBase, filePath);
+  return relation === "" || (!relation.startsWith("..") && !isAbsolute(relation));
 };
 
 const resolutionBases = (documentUri: string, workspaceFolderUris: readonly string[]): string[] => {

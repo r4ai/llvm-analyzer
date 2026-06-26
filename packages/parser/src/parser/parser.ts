@@ -89,7 +89,7 @@ const isInlineMetadataConstructor = (tokens: readonly Token[], index: number): b
 /** `!dbg !0` などの attachment key は定義参照ではなく、直後のメタデータだけを参照として扱う。 */
 const isMetadataAttachmentKey = (tokens: readonly Token[], index: number): boolean =>
   tokens[index]?.kind === "MetadataIdentifier" &&
-  tokens[index - 1]?.value === "," &&
+  !/^!\d+$/u.test(tokens[index]?.value ?? "") &&
   (tokens[index + 1]?.kind === "MetadataIdentifier" || tokens[index + 1]?.value === "!");
 
 /** 周辺構文から参照種別を補正する。 */
@@ -456,8 +456,25 @@ const collectDelimitedElementIn = (
       depth = updateDelimiterDepth(depth, token.value);
     }
     next = collected.next;
-  } while (next < body.length && depth > 0);
+  } while (next < body.length && (depth > 0 || isInstructionContinuation(element, body, next)));
   return { element, next };
+};
+
+/** `invoke` や `landingpad` の後続行が、同じ命令の継続句かを判定する。 */
+const isInstructionContinuation = (
+  current: readonly Token[],
+  body: readonly Token[],
+  next: number,
+): boolean => {
+  const opcode = instructionOpcode(current);
+  const head = body[next];
+  if (!opcode || !head) return false;
+  if (head.kind === "Label" || head.kind === "DebugRecord") return false;
+  if (head.kind === "String" && body[next + 1]?.value === ":") return false;
+  if (opcode === "invoke" || opcode === "callbr") return head.value === "to";
+  if (opcode === "landingpad")
+    return head.value === "cleanup" || head.value === "catch" || head.value === "filter";
+  return false;
 };
 
 /** 1 要素分のトークンから命令ノードを作る（`line` は非空である前提）。 */

@@ -108,6 +108,10 @@
   - `@changesets/cli` と `.changeset/config.json` を導入し、`llvm-analyzer-vscode` の version / changelog を changeset から生成できるようにした
   - `main` push で Version PR を作り、Version PR merge 後に OIDC publish と GitHub Release 作成を行う `Release` ワークフローを追加した
   - PR CI で changeset または empty changeset の有無を確認し、repo 固有の `release-workflow` スキルに運用手順を記録した
+- [x] **clang生成IRの実践テストとセキュリティ硬化**（2026-06-26）
+  - devbox に clang / llvm-as を追加し、自前の C/C++ から生成した LLVM IR を parser / analyzer / LSP adapter / LLVM verifier に通す結合テストを追加した
+  - `!dbg` attachment、複数行 `invoke` / `landingpad`、GEP の名前付き型、`byval(%T)` 系属性内の型引数を現実的な clang IR で壊さないようにした
+  - 外部 verifier 設定に合わせて Workspace Trust 要件を明示し、Document Link は workspace folder または IR ファイルのディレクトリ配下の実在ファイルだけを返すようにした
 
 ## メモ
 

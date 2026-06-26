@@ -205,6 +205,48 @@ describe("analyze: 定義参照インデックス", () => {
     expect(model.diagnostics()).toEqual([]);
   });
 
+  it("getelementptr のフラグ後にある名前付き型を型定義へ解決する", () => {
+    const source = [
+      "%struct.S = type { i32, i32 }",
+      "define i32 @f(ptr %p) {",
+      "entry:",
+      "  %field = getelementptr inbounds nuw %struct.S, ptr %p, i32 0, i32 0",
+      "  %value = load i32, ptr %field",
+      "  ret i32 %value",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%struct.S", 1))?.kind).toBe("type");
+    expect(model.diagnostics()).toEqual([]);
+  });
+
+  it.each(["byval", "sret", "preallocated", "inalloca", "elementtype"])(
+    "%s 属性内の名前付き型を parameter と誤登録しない",
+    (attribute) => {
+      const source = [
+        "%struct.Big = type { i64, i64, i64 }",
+        `define void @f(ptr noundef ${attribute}(%struct.Big) align 8 %0) {`,
+        "entry:",
+        `  call void @sink(ptr noundef ${attribute}(%struct.Big) align 8 %0)`,
+        "  ret void",
+        "}",
+        `declare void @sink(ptr noundef ${attribute}(%struct.Big) align 8)`,
+      ].join("\n");
+      const model = modelOf(source);
+
+      expect(model.symbols.filter((symbol) => symbol.name === "%struct.Big")).toEqual([
+        expect.objectContaining({ kind: "type", scopeName: "module" }),
+      ]);
+      expect(
+        model.symbols.filter((symbol) => symbol.kind === "parameter").map((symbol) => symbol.name),
+      ).toEqual(["%0"]);
+      expect(model.definitionAt(posOf(source, "%struct.Big", 1))?.kind).toBe("type");
+      expect(model.definitionAt(posOf(source, "%struct.Big", 2))?.kind).toBe("type");
+      expect(model.diagnostics()).toEqual([]);
+    },
+  );
+
   it("値位置のローカル参照を同名の名前付き型へ誤解決しない", () => {
     const source = ["%T = type { i32 }", "define i32 @f() {", "entry:", "  ret i32 %T", "}"].join(
       "\n",
@@ -316,6 +358,46 @@ describe("analyze: 診断", () => {
       "  ret i32 %y",
       "}",
       "!0 = !{}",
+    ].join("\n");
+
+    expect(modelOf(source).diagnostics()).toEqual([]);
+  });
+
+  it("関数定義末尾の metadata attachment key を未定義参照として診断しない", () => {
+    const source = [
+      "declare i32 @__gxx_personality_v0(...)",
+      "define void @f() personality ptr @__gxx_personality_v0 !dbg !0 {",
+      "entry:",
+      "  ret void, !dbg !1",
+      "}",
+      "!0 = !{}",
+      "!1 = !{}",
+    ].join("\n");
+
+    expect(modelOf(source).diagnostics()).toEqual([]);
+  });
+
+  it("複数行 invoke の継続句を終端後命令として誤診断しない", () => {
+    const source = [
+      "@_ZTIi = external constant ptr",
+      "declare i32 @__gxx_personality_v0(...)",
+      "declare ptr @__cxa_allocate_exception(i64)",
+      "declare void @__cxa_throw(ptr, ptr, ptr)",
+      "define void @f(i32 %x) personality ptr @__gxx_personality_v0 !dbg !0 {",
+      "entry:",
+      "  %exception = call ptr @__cxa_allocate_exception(i64 4)",
+      "  invoke void @__cxa_throw(ptr %exception, ptr @_ZTIi, ptr null)",
+      "          to label %unreachable unwind label %lpad, !dbg !1",
+      "lpad:",
+      "  %landing = landingpad { ptr, i32 }",
+      "          catch ptr null, !dbg !2",
+      "  resume { ptr, i32 } %landing",
+      "unreachable:",
+      "  unreachable",
+      "}",
+      "!0 = !{}",
+      "!1 = !{}",
+      "!2 = !{}",
     ].join("\n");
 
     expect(modelOf(source).diagnostics()).toEqual([]);

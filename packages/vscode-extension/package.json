@@ -170,5 +170,11 @@
   ],
   "engines": {
     "vscode": "^1.96.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "LLVM verifier command settings can execute external tools, so this extension requires a trusted workspace."
+    }
   }
 }

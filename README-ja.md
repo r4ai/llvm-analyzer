@@ -45,6 +45,7 @@ llvm-as -o {devNull} -
 parser 診断と analyzer 診断はそのまま使えます。
 
 `llvm-analyzer.verifier.command` と `llvm-analyzer.verifier.args` を変更すると、`opt -passes=verify -disable-output -` などの verifier コマンドに差し替えられます。
+これらの設定は外部ツールを実行できるため、この拡張機能は信頼済み VSCode workspace でのみ動作します。
 
 ## 設定
 

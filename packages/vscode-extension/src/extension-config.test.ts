@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { FileSystemWatcher } from "vscode";
 import { buildClientOptions, buildServerOptions } from "./extension-config.ts";
@@ -27,6 +28,22 @@ describe("extension config", () => {
         ],
         fileEvents: watcher,
       },
+    });
+  });
+
+  it("外部 verifier 実行を含むためWorkspace Trustを必須にする", () => {
+    const manifest = JSON.parse(readFileSync("packages/vscode-extension/package.json", "utf8")) as {
+      capabilities?: {
+        untrustedWorkspaces?: {
+          supported?: boolean;
+        };
+      };
+    };
+
+    expect(manifest.capabilities?.untrustedWorkspaces).toEqual({
+      supported: false,
+      description:
+        "LLVM verifier command settings can execute external tools, so this extension requires a trusted workspace.",
     });
   });
 });

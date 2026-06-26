@@ -337,6 +337,42 @@ describe("parseModule: 関数定義", () => {
     ).toEqual(["%default", "%zero", "%one"]);
   });
 
+  it("複数行 invoke の to/unwind 継続句を1つの終端命令として扱う", () => {
+    const fn = [
+      "define void @f() personality ptr @__gxx_personality_v0 !dbg !0 {",
+      "entry:",
+      "  invoke void @may_throw()",
+      "          to label %ok unwind label %lpad, !dbg !1",
+      "ok:",
+      "  ret void",
+      "lpad:",
+      "  %landing = landingpad { ptr, i32 }",
+      "          catch ptr null, !dbg !2",
+      "  resume { ptr, i32 } %landing",
+      "}",
+      "!0 = !{}",
+      "!1 = !{}",
+      "!2 = !{}",
+    ].join("\n");
+    const { ast, diagnostics } = parseModule(fn);
+    const entry = ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(diagnostics).toEqual([]);
+    expect(entry.references.map((ref) => ref.name)).toEqual(["@__gxx_personality_v0", "!0"]);
+    expect(entry.blocks[0]?.instructions).toHaveLength(1);
+    expect(entry.blocks[0]?.instructions[0]?.opcode).toBe("invoke");
+    expect(
+      entry.blocks[0]?.instructions[0]?.operands
+        .filter((operand) => operand.kind === "LabelRef")
+        .map((operand) => operand.name),
+    ).toEqual(["%ok", "%lpad"]);
+    expect(entry.blocks[2]?.instructions.map((instruction) => instruction.opcode)).toEqual([
+      "landingpad",
+      "resume",
+    ]);
+  });
+
   it("複数行ベクトル定数を含む命令を1つの命令として扱う", () => {
     const fn = [
       "define void @f() {",

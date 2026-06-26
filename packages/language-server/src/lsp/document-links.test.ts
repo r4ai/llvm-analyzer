@@ -49,6 +49,27 @@ describe("getDocumentLinks", () => {
     expect(links).toEqual([]);
   });
 
+  it("workspace外へ出る相対パスと絶対パスはリンク化しない", async () => {
+    const snapshot = makeDocumentSnapshot(
+      "file:///workspace/build/out.ll",
+      [
+        'source_filename = "../../secret.c"',
+        '!0 = !DIFile(filename: "/tmp/secret.c", directory: "/ignored")',
+      ].join("\n"),
+    );
+    const seen: string[] = [];
+    const links = await getDocumentLinks(snapshot, {
+      workspaceFolderUris: ["file:///workspace"],
+      fileExists: async (filePath) => {
+        seen.push(filePath);
+        return true;
+      },
+    });
+
+    expect(links).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
   it("DIFile の絶対パス候補を DocumentLink にする", async () => {
     const snapshot = makeDocumentSnapshot(
       "file:///workspace/out.ll",
@@ -112,5 +133,23 @@ describe("getDocumentLinks", () => {
 
     expect(seen).toEqual(["/workspace/main.c"]);
     expect(links.map((link) => link.target)).toEqual(["file:///workspace/main.c"]);
+  });
+
+  it("同じ解決候補の存在確認を重複して実行しない", async () => {
+    const snapshot = makeDocumentSnapshot(
+      "file:///workspace/out.ll",
+      ['source_filename = "src/main.c"', 'source_filename = "src/main.c"'].join("\n"),
+    );
+    const seen: string[] = [];
+    const links = await getDocumentLinks(snapshot, {
+      workspaceFolderUris: ["file:///workspace"],
+      fileExists: async (filePath) => {
+        seen.push(filePath);
+        return filePath === "/workspace/src/main.c";
+      },
+    });
+
+    expect(links).toHaveLength(2);
+    expect(seen).toEqual(["/workspace/src/main.c"]);
   });
 });
