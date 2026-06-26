@@ -9,4 +9,4 @@
 export type { DocEntry } from "./docs/doc-entry.ts";
 export { opcodeDocs } from "./docs/opcodes.ts";
 export { attributeDocs } from "./docs/attributes.ts";
-export { typeDocs } from "./docs/type-docs.ts";
+export { typeDocs } from "./docs/types.ts";
