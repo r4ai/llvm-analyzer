@@ -70,6 +70,24 @@ describe("getDocumentLinks", () => {
     expect(seen).toEqual([]);
   });
 
+  it("IRファイルのディレクトリから戻るworkspace内の相対パスをリンク化する", async () => {
+    const snapshot = makeDocumentSnapshot(
+      "file:///workspace/build/out.ll",
+      'source_filename = "../src/main.c"\n',
+    );
+    const seen: string[] = [];
+    const links = await getDocumentLinks(snapshot, {
+      workspaceFolderUris: ["file:///workspace"],
+      fileExists: async (filePath) => {
+        seen.push(filePath);
+        return filePath === "/workspace/src/main.c";
+      },
+    });
+
+    expect(seen).toEqual(["/workspace/src/main.c"]);
+    expect(links.map((link) => link.target)).toEqual(["file:///workspace/src/main.c"]);
+  });
+
   it("DIFile の絶対パス候補を DocumentLink にする", async () => {
     const snapshot = makeDocumentSnapshot(
       "file:///workspace/out.ll",

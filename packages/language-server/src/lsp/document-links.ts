@@ -61,7 +61,7 @@ const firstExistingPath = async (
   fileExists: (filePath: string) => Promise<boolean>,
   existsCache: Map<string, Promise<boolean>>,
 ): Promise<string | undefined> => {
-  const paths = candidatePathsWithinBases(candidatePath, bases);
+  const paths = candidatePathsWithinBases(candidatePath, bases, bases);
   const results = await Promise.all(
     paths.map(async (filePath) => ({
       filePath,
@@ -83,17 +83,22 @@ const cachedFileExists = (
   return exists;
 };
 
-const candidatePathsWithinBases = (candidatePath: string, bases: readonly string[]): string[] => {
+const candidatePathsWithinBases = (
+  candidatePath: string,
+  bases: readonly string[],
+  allowedRoots: readonly string[],
+): string[] => {
   if (bases.length === 0) return [];
   if (isAbsolute(candidatePath)) {
     const absolutePath = resolve(candidatePath);
-    return bases.some((base) => isWithinBase(absolutePath, base)) ? [absolutePath] : [];
+    return allowedRoots.some((root) => isWithinBase(absolutePath, root)) ? [absolutePath] : [];
   }
   return bases
     .map((base) => resolve(join(base, candidatePath)))
     .filter(
-      (filePath, index, all) =>
-        isWithinBase(filePath, bases[index] ?? "") && all.indexOf(filePath) === index,
+      (filePath, _index, all) =>
+        allowedRoots.some((root) => isWithinBase(filePath, root)) &&
+        all.indexOf(filePath) === _index,
     );
 };
 

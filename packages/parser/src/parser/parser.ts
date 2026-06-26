@@ -471,7 +471,8 @@ const isInstructionContinuation = (
   if (!opcode || !head) return false;
   if (head.kind === "Label" || head.kind === "DebugRecord") return false;
   if (head.kind === "String" && body[next + 1]?.value === ":") return false;
-  if (opcode === "invoke" || opcode === "callbr") return head.value === "to";
+  if (opcode === "invoke") return head.value === "to" || head.value === "unwind";
+  if (opcode === "callbr") return head.value === "to";
   if (opcode === "landingpad")
     return head.value === "cleanup" || head.value === "catch" || head.value === "filter";
   return false;
