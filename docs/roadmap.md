@@ -5,7 +5,7 @@
 ## フェーズ
 
 - [x] **基盤 + シンタックスハイライト**（2026-06-22）
-  - モノレポ足場（mise / pnpm workspace + サプライチェーン対策 / oxlint / oxfmt / lefthook / CI + pinact）
+  - モノレポ足場（Devbox / pnpm workspace + サプライチェーン対策 / oxlint / oxfmt / lefthook / CI + pinact）
   - `packages/vscode-extension`: TextMate文法による `.ll` のシンタックスハイライト、`language-configuration.json`、サンプル
 - [x] **parser: lexer**（2026-06-22）
   - `packages/parser` 新設。`tokenize(source): Token[]`（純粋関数、末尾に `Eof`、不正文字は `Unknown` で回復）

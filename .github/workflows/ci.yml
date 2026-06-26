@@ -15,19 +15,23 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
-      - run: pnpm install --frozen-lockfile
+      - uses: jetify-com/devbox-install-action@8c6a66ed6273138b1915457069de78cb52fe3bd7 # v0.15.0
+        with:
+          devbox-version: 0.17.5
+      - run: devbox run -- pnpm install --frozen-lockfile
       - if: github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main'
-        run: pnpm changeset status --since=origin/main
-      - run: pnpm lint
-      - run: pnpm format
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+        run: devbox run -- pnpm changeset status --since=origin/main
+      - run: devbox run -- pnpm lint
+      - run: devbox run -- pnpm format
+      - run: devbox run -- pnpm typecheck
+      - run: devbox run -- pnpm test
+      - run: devbox run -- pnpm build
 
   actions-pinned:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
-      - run: pinact run --check
+      - uses: jetify-com/devbox-install-action@8c6a66ed6273138b1915457069de78cb52fe3bd7 # v0.15.0
+        with:
+          devbox-version: 0.17.5
+      - run: devbox run -- pinact run --check

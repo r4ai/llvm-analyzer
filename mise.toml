@@ -1,5 +1,0 @@
-[tools]
-node = "24"
-pnpm = "11.8.0"
-pinact = "3.10.1"
-lefthook = "2.1.9"
