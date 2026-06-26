@@ -112,6 +112,10 @@
   - devbox に clang / llvm-as を追加し、自前の C/C++ から生成した LLVM IR を parser / analyzer / LSP adapter / LLVM verifier に通す結合テストを追加した
   - `!dbg` attachment、複数行 `invoke` / `landingpad`、GEP の名前付き型、`byval(%T)` 系属性内の型引数を現実的な clang IR で壊さないようにした
   - 外部 verifier 設定に合わせて Workspace Trust 要件を明示し、Document Link は workspace folder または IR ファイルのディレクトリ配下の実在ファイルだけを返すようにした
+- [x] **ADR運用**（2026-06-26）
+  - `docs/adr/` に ADR の README、テンプレート、最初の判断記録を追加した
+  - トレードオフを伴う判断を ADR に残す repo-local skill `adr-workflow` を追加した
+  - `feature-workflow` から ADR 作成手順を参照するようにした
 
 ## メモ
 
