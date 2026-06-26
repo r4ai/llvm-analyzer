@@ -11,6 +11,9 @@ LLVM IR の parser と analyzer は VSCode や LSP に依存しない純粋な�
 依存方向は `vscode-extension -> language-server -> analyzer -> parser` です。
 parser と analyzer は VSCode API に依存しません。
 
+トレードオフを伴う設計判断や運用判断は [docs/adr/](adr/) に ADR として記録します。
+`docs/design.md` は現在有効な設計、`docs/plans/` は実装ログ、`docs/adr/` は判断の背景と代替案を残す文書として使い分けます。
+
 ## リポジトリ構成
 
 | パッケージ                  | 責務                                                         |
@@ -131,4 +134,5 @@ GitHub `vscode-marketplace` environment secrets には次を設定します。
 | [docs/design.md](design.md)                                                   | アーキテクチャ、パッケージ責務、LSP 機能の対応関係。 |
 | [docs/roadmap.md](roadmap.md)                                                 | 実装済みフェーズと残タスクの管理。                   |
 | [docs/plans/](plans/)                                                         | 各フェーズの実行ログ。ファイル名は古い順の連番。     |
+| [docs/adr/](adr/)                                                             | トレードオフを伴う判断の背景、代替案、採用理由。     |
 | [packages/vscode-extension/README.md](../packages/vscode-extension/README.md) | VSCode 拡張機能としての機能と設定。                  |

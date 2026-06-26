@@ -1,0 +1,6 @@
+interface:
+  display_name: "ADR Workflow"
+  short_description: "設計判断をArchitecture Decision Recordとして記録する"
+  default_prompt: "Use $adr-workflow to record an architecture decision with status, context, alternatives, consequences, and documentation follow-up."
+policy:
+  allow_implicit_invocation: true
