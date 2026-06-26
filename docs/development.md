@@ -22,14 +22,15 @@ parser と analyzer は VSCode API に依存しません。
 
 ## 開発環境
 
-Node.js、pnpm、lefthook、pinact は [mise](https://mise.jdx.dev/) で管理します。
+Node.js、pnpm、lefthook、pinact は [Devbox](https://www.jetify.com/devbox) で管理します。
 
 ```sh
-mise install
+devbox shell
 pnpm install
 ```
 
 `pnpm install` 時に lefthook の Git hook が設定されます。
+一時的なコマンド実行だけなら `devbox run -- pnpm test` のように実行します。
 
 ## 動作確認
 
@@ -65,7 +66,7 @@ pnpm --filter llvm-analyzer-vscode package
 | 公開直後の依存      | pnpm の `minimumReleaseAge` で、公開直後の依存バージョンをすぐ取り込まない。               |
 | 依存の build script | pnpm の `allowBuilds` で、許可した依存だけにビルドスクリプト実行を認める。                 |
 | GitHub Actions      | [pinact](https://github.com/suzuki-shunsuke/pinact) で `uses:` をコミット SHA に固定する。 |
-| CI 検査             | lint、format、typecheck、test、build、`pinact run --check` を実行する。                    |
+| CI 検査             | Devbox 上で lint、format、typecheck、test、build、`pinact run --check` を実行する。        |
 
 ## リリース管理
 

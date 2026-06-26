@@ -26,13 +26,15 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
-      - run: pnpm install --frozen-lockfile
+      - uses: jetify-com/devbox-install-action@8c6a66ed6273138b1915457069de78cb52fe3bd7 # v0.15.0
+        with:
+          devbox-version: 0.17.5
+      - run: devbox run -- pnpm install --frozen-lockfile
       - name: Create Version PR
         id: changesets
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
-          version: pnpm version-packages
+          version: devbox run -- pnpm version-packages
           title: "chore: version packages"
           commit: "chore: version packages"
           commitMode: github-api
@@ -55,6 +57,9 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
+      - uses: jetify-com/devbox-install-action@8c6a66ed6273138b1915457069de78cb52fe3bd7 # v0.15.0
+        with:
+          devbox-version: 0.17.5
       - id: version
         name: Resolve release version
         run: |
@@ -64,7 +69,7 @@ jobs:
             exit 0
           fi
 
-          version="$(node -p "require('./packages/vscode-extension/package.json').version")"
+          version="$(devbox run -- node -p "require('./packages/vscode-extension/package.json').version")"
           tag="llvm-analyzer-vscode@${version}"
           {
             echo "version=${version}"
@@ -87,13 +92,15 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm format
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm --filter llvm-analyzer-vscode package
+      - uses: jetify-com/devbox-install-action@8c6a66ed6273138b1915457069de78cb52fe3bd7 # v0.15.0
+        with:
+          devbox-version: 0.17.5
+      - run: devbox run -- pnpm install --frozen-lockfile
+      - run: devbox run -- pnpm lint
+      - run: devbox run -- pnpm format
+      - run: devbox run -- pnpm typecheck
+      - run: devbox run -- pnpm test
+      - run: devbox run -- pnpm --filter llvm-analyzer-vscode package
       - name: Record VSIX checksum
         run: sha256sum packages/vscode-extension/llvm-analyzer-vscode.vsix > packages/vscode-extension/llvm-analyzer-vscode.vsix.sha256
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -121,8 +128,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: jetify-com/devbox-install-action@8c6a66ed6273138b1915457069de78cb52fe3bd7 # v0.15.0
+        with:
+          devbox-version: 0.17.5
+      - run: devbox run -- pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: llvm-analyzer-vscode-vsix
@@ -137,14 +146,14 @@ jobs:
       - name: Publish VSIX
         env:
           AZURE_CORE_OUTPUT: none
-        run: pnpm --filter llvm-analyzer-vscode exec vsce publish --azure-credential --skip-duplicate --packagePath llvm-analyzer-vscode.vsix
+        run: devbox run -- pnpm --filter llvm-analyzer-vscode exec vsce publish --azure-credential --skip-duplicate --packagePath llvm-analyzer-vscode.vsix
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare-release.outputs.tag }}
           VERSION: ${{ needs.prepare-release.outputs.version }}
         run: |
-          node scripts/vscode-release-notes.mjs > release-notes.md
+          devbox run -- node scripts/vscode-release-notes.mjs > release-notes.md
           gh release create "$TAG" packages/vscode-extension/llvm-analyzer-vscode.vsix \
             --target "$GITHUB_SHA" \
             --title "llvm-analyzer-vscode ${VERSION}" \
