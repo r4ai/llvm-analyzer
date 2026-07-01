@@ -1,7 +1,7 @@
 # アーキテクチャ
 
 この文書は、`llvm-analyzer` の現在のリポジトリ構成と処理の流れを短く示します。
-詳細な設計意図は [docs/design.md](design.md)、開発手順は [docs/development.md](development.md) を参照します。
+詳細な設計意図は [docs/design.md](design.md)、language-server の処理は [docs/language-server.md](language-server.md)、開発手順は [docs/development.md](development.md) を参照します。
 
 ## 全体像
 
@@ -49,6 +49,7 @@ flowchart LR
 │   ├── adr/                # 採用した設計判断
 │   ├── plans/              # 実装フェーズごとの記録
 │   ├── design.md           # 詳細設計
+│   ├── language-server.md  # LSP サーバの処理
 │   ├── development.md      # 開発と検証の手順
 │   └── roadmap.md          # 実装済み項目と残タスク
 ├── assets/                 # README 用画像
