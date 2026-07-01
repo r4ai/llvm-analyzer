@@ -133,6 +133,7 @@ GitHub `vscode-marketplace` environment secrets には次を設定します。
 | 文書                                                                          | 内容                                                 |
 | ----------------------------------------------------------------------------- | ---------------------------------------------------- |
 | [docs/architecture.md](architecture.md)                                       | 現在のリポジトリ構成、依存方向、処理フローの概要。   |
+| [docs/analysis-flow.md](analysis-flow.md)                                     | parser と analyzer の解析フロー。                    |
 | [docs/design.md](design.md)                                                   | アーキテクチャ、パッケージ責務、LSP 機能の対応関係。 |
 | [docs/language-server.md](language-server.md)                                 | language-server の処理、snapshot、索引、副作用。     |
 | [docs/roadmap.md](roadmap.md)                                                 | 実装済みフェーズと残タスクの管理。                   |
