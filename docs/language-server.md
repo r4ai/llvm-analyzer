@@ -92,6 +92,129 @@ snapshot は LSP 応答の基準です。
 単一ドキュメント機能は `packages/language-server/src/lsp/features.ts` に集約します。
 workspace 横断機能は専用索引に分けます。
 
+## リクエストとレスポンス例
+
+以下の例では `file:///hello.ll` が次の内容を持つとします。
+LSP の `line` と `character` は 0 始まりです。
+JSON-RPC の `Content-Length` header は省略します。
+
+```llvm
+source_filename = "hello.c"
+@g = global i32 1
+define i32 @main(i32 %x) {
+entry:
+  %sum = add i32 %x, 1
+  br label %exit
+exit:
+  ret i32 %sum
+}
+```
+
+`%sum` に対する hover request です。
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "textDocument/hover",
+  "params": {
+    "textDocument": { "uri": "file:///hello.ll" },
+    "position": { "line": 4, "character": 4 }
+  }
+}
+```
+
+server は analyzer のシンボル情報を Markdown hover に変換します。
+
+````json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "contents": {
+      "kind": "markdown",
+      "value": "| Property | Value |\n| --- | --- |\n| Kind | `local` |\n| Type | `i32` |\n| Scope | `@main` |\n\nDefinition:\n```llvm\n%sum = add i32 %x, 1\n```"
+    },
+    "range": {
+      "start": { "line": 4, "character": 2 },
+      "end": { "line": 4, "character": 6 }
+    }
+  }
+}
+````
+
+`ret i32 %sum` の `%sum` に対する definition request です。
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "textDocument/definition",
+  "params": {
+    "textDocument": { "uri": "file:///hello.ll" },
+    "position": { "line": 7, "character": 11 }
+  }
+}
+```
+
+server は定義位置を `Location` として返します。
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "uri": "file:///hello.ll",
+    "range": {
+      "start": { "line": 4, "character": 2 },
+      "end": { "line": 4, "character": 6 }
+    }
+  }
+}
+```
+
+未定義参照を含む変更通知です。
+`textDocument/didChange` は notification なので、request に対する response はありません。
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "textDocument/didChange",
+  "params": {
+    "textDocument": { "uri": "file:///broken.ll", "version": 2 },
+    "contentChanges": [
+      {
+        "text": "define i32 @main() {\n  ret i32 %missing\n}\n"
+      }
+    ]
+  }
+}
+```
+
+解析後、server は `textDocument/publishDiagnostics` を送ります。
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "textDocument/publishDiagnostics",
+  "params": {
+    "uri": "file:///broken.ll",
+    "diagnostics": [
+      {
+        "range": {
+          "start": { "line": 1, "character": 10 },
+          "end": { "line": 1, "character": 18 }
+        },
+        "message": "`%missing` が定義されていません",
+        "severity": 1,
+        "source": "llvm-analyzer",
+        "code": "undefined-reference"
+      }
+    ]
+  }
+}
+```
+
 ## workspace 索引
 
 | 索引                   | 対象                                                                         | 更新条件                                        |
