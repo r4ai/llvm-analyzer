@@ -8,13 +8,19 @@ import { CallHierarchyIndex } from "../packages/language-server/src/lsp/call-hie
 import { getInlayHints } from "../packages/language-server/src/lsp/features.ts";
 import { WorkspaceSymbolIndex } from "../packages/language-server/src/lsp/workspace-symbols.ts";
 import { parseModule } from "../packages/parser/src/index.ts";
+import { measureMedianDuration } from "./stable-benchmark.mts";
 
 const SIZE_FACTOR = 4;
 const RECOVERY_SIZE_FACTOR = 16;
 const MAX_NORMALIZED_GROWTH = 2;
 const MIN_INCREMENTAL_SPEEDUP = 1.2;
 const MIN_SHARING_SPEEDUP = 1.5;
-const SAMPLES = 3;
+const SAMPLES = 5;
+const FILE_REFERENCE_BENCHMARK = {
+  warmupIterations: 3,
+  iterationsPerSample: 25,
+  samples: 5,
+};
 const LSP_DOCUMENT_URI = "file:///benchmark-large-ir.ll";
 
 const scenarios = [
@@ -197,14 +203,13 @@ function parseAndAnalyze(source) {
 
 function benchmarkFileReferences(source) {
   const ast = parseModule(source).ast;
-  const samples = Array.from({ length: SAMPLES }, () => {
-    const start = performance.now();
-    collectFileReferenceCandidates(ast, source);
-    return performance.now() - start;
-  });
   return {
     bytes: source.length,
-    fileReferencesMs: round(median(samples)),
+    fileReferencesMs: round(
+      measureMedianDuration(() => {
+        collectFileReferenceCandidates(ast, source);
+      }, FILE_REFERENCE_BENCHMARK),
+    ),
   };
 }
 

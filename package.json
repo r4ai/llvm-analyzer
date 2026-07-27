@@ -13,7 +13,7 @@
     "lint": "oxlint --no-error-on-unmatched-pattern",
     "format": "oxfmt --check .",
     "format:write": "oxfmt .",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "tsc --noEmit -p tsconfig.scripts.json && pnpm -r --if-present typecheck",
     "version-packages": "changeset version",
     "pin-actions": "pinact run",
     "prepare": "lefthook install"
