@@ -281,6 +281,14 @@ describe("tokenize: 数値", () => {
     ]);
   });
 
+  it("大文字のF0X形式を浮動小数リテラルにする", () => {
+    expect(kinds("F0X3C00")).toEqual([["Number", "F0X3C00"]]);
+  });
+
+  it("X以外が続くf0を通常の識別子にする", () => {
+    expect(kinds("f0y")).toEqual([["Identifier", "f0y"]]);
+  });
+
   it("数字を伴わない符号は Unknown", () => {
     expect(firstKind("-")).toBe("Unknown");
   });

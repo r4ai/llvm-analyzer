@@ -11,10 +11,128 @@ import type {
 import type { Position, Range } from "../lexer/index.ts";
 import { parseModule } from "./parser.ts";
 
-interface TextChange {
-  readonly oldStart: number;
-  readonly oldEnd: number;
-  readonly newEnd: number;
+/** 一回の編集について、更新前の範囲と更新後の挿入終端を表す。 */
+export interface IncrementalParseEdit {
+  /** 更新前ソース上で置換する範囲。 */
+  readonly range: Range;
+  /** 更新後ソース上で、挿入されたテキストの直後を指す位置。 */
+  readonly newEnd: Position;
+}
+
+/** parser sessionが直前のソースを処理した方法。 */
+export type ParseUpdateStrategy = "initial" | "incremental" | "full";
+
+interface IncrementalParseResult {
+  readonly result: ParseResult;
+  readonly reparsedBytes: number;
+}
+
+/**
+ * LLVM IRソースと構文解析結果を所有する不変のparser session。
+ *
+ * @remarks
+ * ソース長を`n`、トップレベル要素数を`m`、再パースする要素長を`k`、
+ * 位置が移動する後続ASTノード数を`a_s`とする。
+ * 初回解析は時間・空間とも`O(n)`である。
+ * 同じ長さの局所編集は`O(log m + k + m)`時間、`O(k + m)`追加空間で処理する。
+ * 長さまたは行数が変わる局所編集は`O(log m + k + m + a_s)`時間、
+ * `O(k + m + a_s)`追加空間で処理する。
+ * 要素境界を確定できない場合は`O(n)`の全文解析へ戻す。
+ *
+ * 公開ASTが絶対位置を持つ配列であるため、局所編集でも配列再構成の`O(m)`は残る。
+ */
+export class IncrementalParserSession {
+  readonly source: string;
+  readonly result: ParseResult;
+  readonly strategy: ParseUpdateStrategy;
+  readonly reparsedBytes: number;
+
+  private constructor(
+    source: string,
+    result: ParseResult,
+    strategy: ParseUpdateStrategy,
+    reparsedBytes: number,
+  ) {
+    this.source = source;
+    this.result = result;
+    this.strategy = strategy;
+    this.reparsedBytes = reparsedBytes;
+  }
+
+  /**
+   * 全文から新しいsessionを作る。
+   *
+   * @param source LLVM IRソース。
+   * @returns 初回解析済みのsession。
+   */
+  static create(source: string): IncrementalParserSession {
+    return IncrementalParserSession.parseAll(source, "initial");
+  }
+
+  /**
+   * 明示的な編集を適用した新しいsessionを返す。
+   *
+   * @param source 更新後のソース。
+   * @param edit 更新前の範囲と更新後の挿入終端。
+   * @returns 局所更新または安全な全文解析を行ったsession。
+   * @throws {RangeError} 編集位置とソース長の契約が不正な場合。
+   *
+   * @remarks
+   * `source`は、このsessionのソースへ`edit`を一回適用した結果でなければならない。
+   * 呼び出し側が保証するこの前提により、変更範囲を全文走査で再検証しない。
+   */
+  update(source: string, edit: IncrementalParseEdit): IncrementalParserSession {
+    if (source === this.source) return this;
+    assertValidEdit(this.source, source, edit);
+    const incremental = applyIncrementalEdit(this.result, source, edit);
+    return incremental
+      ? new IncrementalParserSession(
+          source,
+          incremental.result,
+          "incremental",
+          incremental.reparsedBytes,
+        )
+      : IncrementalParserSession.parseAll(source, "full");
+  }
+
+  /**
+   * 更新前後の全文から差分を推定して更新する互換入口。
+   *
+   * @param source 更新後のソース。
+   * @returns 局所更新または安全な全文解析を行ったsession。
+   *
+   * @remarks
+   * 差分推定に`O(n)`時間を使う。
+   * 明示的な編集範囲を持つ呼び出し側は{@link update}を使用する。
+   */
+  updateFromSource(source: string): IncrementalParserSession {
+    if (source === this.source) return this;
+    const change = changedRange(this.source, source);
+    return this.update(source, {
+      range: {
+        start: positionAt(this.source, change.oldStart),
+        end: positionAt(this.source, change.oldEnd),
+      },
+      newEnd: positionAt(source, change.newEnd),
+    });
+  }
+
+  /**
+   * 差分情報を利用できない全文変更として更新する。
+   *
+   * @param source 更新後のソース。
+   * @returns 全文解析済みのsession。
+   */
+  replace(source: string): IncrementalParserSession {
+    return source === this.source ? this : IncrementalParserSession.parseAll(source, "full");
+  }
+
+  private static parseAll(
+    source: string,
+    strategy: Exclude<ParseUpdateStrategy, "incremental">,
+  ): IncrementalParserSession {
+    return new IncrementalParserSession(source, parseModule(source), strategy, source.length);
+  }
 }
 
 /**
@@ -37,13 +155,25 @@ export const updateParseResult = (
 ): ParseResult | undefined => {
   if (previousSource === source) return previous;
   const change = changedRange(previousSource, source);
-  const entryIndex = previous.ast.entries.findIndex(
-    (entry) => change.oldStart > entry.range.start.offset && change.oldEnd < entry.range.end.offset,
-  );
+  return applyIncrementalEdit(previous, source, {
+    range: {
+      start: positionAt(previousSource, change.oldStart),
+      end: positionAt(previousSource, change.oldEnd),
+    },
+    newEnd: positionAt(source, change.newEnd),
+  })?.result;
+};
+
+const applyIncrementalEdit = (
+  previous: ParseResult,
+  source: string,
+  edit: IncrementalParseEdit,
+): IncrementalParseResult | undefined => {
+  const entryIndex = containingEntryIndex(previous.ast.entries, edit.range);
   if (entryIndex < 0) return undefined;
 
   const oldEntry = previous.ast.entries[entryIndex]!;
-  const offsetDelta = source.length - previousSource.length;
+  const offsetDelta = edit.newEnd.offset - edit.range.end.offset;
   const newEntryEnd = oldEntry.range.end.offset + offsetDelta;
 
   const fragment = source.slice(oldEntry.range.start.offset, newEntryEnd);
@@ -58,7 +188,7 @@ export const updateParseResult = (
   const shiftedReplacement = shiftEntry(replacement, (position) =>
     shiftFromFragment(position, base),
   );
-  const positionChange = makePositionChange(previousSource, source, change);
+  const positionChange = makePositionChange(edit.range.end, edit.newEnd);
   const prefix = previous.ast.entries.slice(0, entryIndex);
   const suffix = previous.ast.entries
     .slice(entryIndex + 1)
@@ -73,18 +203,63 @@ export const updateParseResult = (
     positionChange,
   );
 
-  return {
+  const result = {
     ast: {
       kind: "Module",
       range: {
         start: { offset: 0, line: 0, column: 0 },
-        end: positionAt(source, source.length),
+        end: shiftModuleEnd(previous.ast.range.end, positionChange),
       },
       entries: [...prefix, shiftedReplacement, ...suffix],
     },
     diagnostics,
-  };
+  } satisfies ParseResult;
+  return { result, reparsedBytes: fragment.length };
 };
+
+const containingEntryIndex = (entries: readonly TopLevelEntry[], range: Range): number => {
+  let low = 0;
+  let high = entries.length - 1;
+  while (low <= high) {
+    const middle = low + Math.floor((high - low) / 2);
+    const entry = entries[middle]!;
+    if (range.start.offset <= entry.range.start.offset) {
+      high = middle - 1;
+    } else if (range.start.offset >= entry.range.end.offset) {
+      low = middle + 1;
+    } else if (range.end.offset >= entry.range.end.offset) {
+      return -1;
+    } else {
+      return middle;
+    }
+  }
+  return -1;
+};
+
+const assertValidEdit = (
+  previousSource: string,
+  source: string,
+  edit: IncrementalParseEdit,
+): void => {
+  const { start, end } = edit.range;
+  const positions = [start, end, edit.newEnd];
+  if (
+    positions.some((position) => Math.min(position.offset, position.line, position.column) < 0) ||
+    start.offset > end.offset ||
+    end.offset > previousSource.length ||
+    edit.newEnd.offset < start.offset ||
+    source.length !==
+      previousSource.length - (end.offset - start.offset) + (edit.newEnd.offset - start.offset)
+  ) {
+    throw new RangeError("編集位置がソース長の契約と一致しません。");
+  }
+};
+
+interface TextChange {
+  readonly oldStart: number;
+  readonly oldEnd: number;
+  readonly newEnd: number;
+}
 
 const changedRange = (previous: string, source: string): TextChange => {
   const sharedLimit = Math.min(previous.length, source.length);
@@ -114,24 +289,22 @@ interface PositionChange {
   readonly shiftSuffix: (position: Position) => Position;
 }
 
-const makePositionChange = (
-  previous: string,
-  source: string,
-  change: TextChange,
-): PositionChange => {
-  const oldEnd = positionAt(previous, change.oldEnd);
-  const newEnd = positionAt(source, change.newEnd);
-  const offsetDelta = source.length - previous.length;
+const makePositionChange = (oldEnd: Position, newEnd: Position): PositionChange => {
+  const offsetDelta = newEnd.offset - oldEnd.offset;
   const lineDelta = newEnd.line - oldEnd.line;
+  const columnDelta = newEnd.column - oldEnd.column;
   return {
-    isIdentity: offsetDelta === 0 && lineDelta === 0,
+    isIdentity: offsetDelta === 0 && lineDelta === 0 && columnDelta === 0,
     shiftSuffix: (position) => ({
       offset: position.offset + offsetDelta,
       line: position.line + lineDelta,
-      column: position.column,
+      column: position.line === oldEnd.line ? position.column + columnDelta : position.column,
     }),
   };
 };
+
+const shiftModuleEnd = (end: Position, change: PositionChange): Position =>
+  change.isIdentity ? end : change.shiftSuffix(end);
 
 const positionAt = (source: string, offset: number): Position => {
   let line = 0;

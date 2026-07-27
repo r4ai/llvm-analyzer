@@ -96,6 +96,8 @@ export interface SemanticSymbol {
    *
    * @remarks
    * 型推定は `AnalyzeOptions.source` が渡され、かつ単純な `i32 %x` や `add i32` のような形を読める場合に限る。
+   * 命令結果の型はこのプロパティが最初に参照されたときに一度だけ推定する。
+   * 同じ意味モデル内の後続参照は、最初に推定した値を返す。
    * 未推定なら undefined。
    */
   readonly type?: string;
@@ -190,7 +192,8 @@ export interface ControlFlowEdge {
  * 解析済み意味モデル。
  *
  * @remarks
- * このオブジェクトは不変の問い合わせ API として扱う。
+ * このオブジェクトは、問い合わせ結果が変わらない不変のAPIとして扱う。
+ * 表示用型は内部で一度だけ遅延評価するが、評価前後で公開結果は変わらない。
  * LSP アダプタはドキュメント更新ごとに作り直し、古いモデルを破棄する想定。
  *
  * @example
