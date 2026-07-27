@@ -81,13 +81,14 @@ const makeRef = (
  */
 const collectRefs = (tokens: readonly Token[], excludeIndex = -1): IdentifierRef[] => {
   const refs: IdentifierRef[] = [];
+  const opcode = instructionOpcode(tokens);
   for (let i = 0; i < tokens.length; i += 1) {
     if (i === excludeIndex) continue;
     const token = tokens[i]!;
     if (isInlineMetadataConstructor(tokens, i)) continue;
     if (isMetadataAttachmentKey(tokens, i)) continue;
     if (IDENTIFIER_KINDS.has(token.kind)) {
-      refs.push(makeRef(token, tokens[i - 1], contextualRefKind(tokens, i)));
+      refs.push(makeRef(token, tokens[i - 1], contextualRefKind(tokens, i, opcode)));
     }
   }
   return refs;
@@ -109,34 +110,32 @@ const isMetadataAttachmentKey = (tokens: readonly Token[], index: number): boole
 const contextualRefKind = (
   tokens: readonly Token[],
   index: number,
+  opcode: string | undefined,
 ): IdentifierRef["kind"] | undefined => {
-  if (isPhiIncomingLabel(tokens, index) || isBlockAddressLabel(tokens, index)) return "LabelRef";
+  if (isPhiIncomingLabel(tokens, index, opcode) || isBlockAddressLabel(tokens, index)) {
+    return "LabelRef";
+  }
   return undefined;
 };
 
 /** `phi ... [ value, %label ]` の incoming label を検出する。 */
-const isPhiIncomingLabel = (tokens: readonly Token[], index: number): boolean =>
+const isPhiIncomingLabel = (
+  tokens: readonly Token[],
+  index: number,
+  opcode: string | undefined,
+): boolean =>
   tokens[index]?.kind === "LocalIdentifier" &&
   tokens[index - 1]?.value === "," &&
   tokens[index + 1]?.value === "]" &&
-  instructionOpcode(tokens) === "phi";
+  opcode === "phi";
 
 /** `blockaddress(@f, %bb)` の第2引数ラベルを検出する。 */
-const isBlockAddressLabel = (tokens: readonly Token[], index: number): boolean => {
-  if (
-    tokens[index]?.kind !== "LocalIdentifier" ||
-    tokens[index - 1]?.value !== "," ||
-    tokens[index + 1]?.value !== ")"
-  ) {
-    return false;
-  }
-  for (let i = index - 2; i >= 0; i -= 1) {
-    const token = tokens[i]!;
-    if (token.value === "(") return tokens[i - 1]!.value === "blockaddress";
-    if (token.value === ")" || token.value === "]" || token.value === "}") return false;
-  }
-  return false;
-};
+const isBlockAddressLabel = (tokens: readonly Token[], index: number): boolean =>
+  tokens[index]?.kind === "LocalIdentifier" &&
+  tokens[index - 1]?.value === "," &&
+  tokens[index + 1]?.value === ")" &&
+  ((tokens[index - 3]?.value === "(" && tokens[index - 4]?.value === "blockaddress") ||
+    (tokens[index - 2]?.value === "(" && tokens[index - 3]?.value === "blockaddress"));
 
 /** 命令行・本体要素内の最初の opcode。 */
 const instructionOpcode = (tokens: readonly Token[]): string | undefined =>

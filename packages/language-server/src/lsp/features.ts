@@ -8,10 +8,11 @@ import {
 } from "@llvm-analyzer/analyzer";
 import {
   formatLlvmIr,
-  parseModule,
+  IncrementalParserSession,
   tokenize,
-  updateParseResult,
   type ParseDiagnostic,
+  type ParseResult,
+  type Position,
   type Range,
 } from "@llvm-analyzer/parser";
 import {
@@ -32,6 +33,7 @@ import {
   type Range as LspRange,
   type SemanticTokens,
   type SemanticTokensLegend,
+  type TextDocumentContentChangeEvent,
   type TextEdit,
   type WorkspaceEdit,
 } from "vscode-languageserver";
@@ -135,7 +137,8 @@ export interface DocumentSnapshot {
   readonly version: number;
   readonly text: string;
   readonly document: TextDocument;
-  readonly parse: ReturnType<typeof parseModule>;
+  readonly parser: IncrementalParserSession;
+  readonly parse: ParseResult;
   readonly model: ReturnType<typeof analyze>;
 }
 
@@ -182,9 +185,10 @@ export interface ReferenceOptions {
  */
 export const makeDocumentSnapshot = (uri: string, text: string, version = 1): DocumentSnapshot => {
   const document = TextDocument.create(uri, "llvm", version, text);
-  const parse = parseModule(text);
+  const parser = IncrementalParserSession.create(text);
+  const parse = parser.result;
   const model = analyze(parse.ast, { source: text });
-  return { uri, version, text, document, parse, model };
+  return { uri, version, text, document, parser, parse, model };
 };
 
 /**
@@ -193,6 +197,7 @@ export const makeDocumentSnapshot = (uri: string, text: string, version = 1): Do
  * @param previous 同じURIに対応する直前のスナップショット。
  * @param text 更新後のLLVM IRソース。
  * @param version 更新後のドキュメントバージョン。
+ * @param changes LSPが通知した順序付き変更列。省略時は全文から差分を推定する。
  * @returns 局所パースまたは安全な全体パースから作ったスナップショット。
  *
  * @remarks
@@ -203,12 +208,71 @@ export const updateDocumentSnapshot = (
   previous: DocumentSnapshot,
   text: string,
   version: number,
+  changes?: readonly TextDocumentContentChangeEvent[],
 ): DocumentSnapshot => {
   const document = TextDocument.create(previous.uri, "llvm", version, text);
-  const parse = updateParseResult(previous.parse, previous.text, text) ?? parseModule(text);
+  const parser = changes
+    ? applyContentChanges(previous.parser, previous.document, changes, text)
+    : previous.parser.updateFromSource(text);
+  const parse = parser.result;
   const model = analyze(parse.ast, { source: text });
-  return { uri: previous.uri, version, text, document, parse, model };
+  return { uri: previous.uri, version, text, document, parser, parse, model };
 };
+
+const applyContentChanges = (
+  initialParser: IncrementalParserSession,
+  initialDocument: TextDocument,
+  changes: readonly TextDocumentContentChangeEvent[],
+  expectedSource: string,
+): IncrementalParserSession => {
+  let parser = initialParser;
+  let document = TextDocument.create(
+    initialDocument.uri,
+    initialDocument.languageId,
+    initialDocument.version,
+    initialDocument.getText(),
+  );
+  for (const change of changes) {
+    let nextDocument: TextDocument;
+    if ("range" in change) {
+      const offsets = {
+        start: document.offsetAt(change.range.start),
+        end: document.offsetAt(change.range.end),
+      };
+      nextDocument = TextDocument.update(document, [change], document.version + 1);
+      const nextSource = nextDocument.getText();
+      parser = parser.update(nextSource, incrementalEdit(nextDocument, change, offsets));
+    } else {
+      nextDocument = TextDocument.update(document, [change], document.version + 1);
+      parser = parser.replace(change.text);
+    }
+    document = nextDocument;
+  }
+  return parser.source === expectedSource ? parser : parser.replace(expectedSource);
+};
+
+const incrementalEdit = (
+  updated: TextDocument,
+  change: Extract<TextDocumentContentChangeEvent, { range: unknown }>,
+  offsets: { readonly start: number; readonly end: number },
+): { readonly range: Range; readonly newEnd: Position } => {
+  return {
+    range: {
+      start: toParserEditPosition(change.range.start, offsets.start),
+      end: toParserEditPosition(change.range.end, offsets.end),
+    },
+    newEnd: toParserEditPosition(
+      updated.positionAt(offsets.start + change.text.length),
+      offsets.start + change.text.length,
+    ),
+  };
+};
+
+const toParserEditPosition = (position: LspPosition, offset: number): Position => ({
+  offset,
+  line: position.line,
+  column: position.character,
+});
 
 /** hover 表示を返す。識別子外では undefined。 */
 export const getHover = (snapshot: DocumentSnapshot, position: LspPosition): Hover | undefined => {

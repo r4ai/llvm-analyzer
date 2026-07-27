@@ -29,12 +29,12 @@ flowchart LR
 
 ## パッケージ構成
 
-| パッケージ                  | 役割                                                                                                  | 主な入口                                                   |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `packages/parser`           | LLVM IR を `source -> tokens -> AST` に変換する。型構文と formatter も持つ。                          | `parseModule`、`tokenize`、`parseLlvmType`、`formatLlvmIr` |
-| `packages/analyzer`         | AST から意味モデルを構築する。定義、参照、型推定、診断、CFG、ドキュメント辞書を扱う。                 | `analyze`、`formatControlFlowGraphAsMermaid`               |
-| `packages/language-server`  | parser と analyzer の結果を LSP 機能へ変換する。設定、診断、workspace index、外部 verifier を扱う。   | `src/server.ts`                                            |
-| `packages/vscode-extension` | VSCode 拡張機能として language server を起動する。TextMate 文法、設定、CFG 表示コマンド、E2E を持つ。 | `src/extension.ts`                                         |
+| パッケージ                  | 役割                                                                                                  | 主な入口                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `packages/parser`           | LLVM IR を `source -> tokens -> AST` に変換する。型構文と formatter も持つ。                          | `parseModule`、`IncrementalParserSession`、`tokenize` |
+| `packages/analyzer`         | AST から意味モデルを構築する。定義、参照、型推定、診断、CFG、ドキュメント辞書を扱う。                 | `analyze`、`formatControlFlowGraphAsMermaid`          |
+| `packages/language-server`  | parser と analyzer の結果を LSP 機能へ変換する。設定、診断、workspace index、外部 verifier を扱う。   | `src/server.ts`                                       |
+| `packages/vscode-extension` | VSCode 拡張機能として language server を起動する。TextMate 文法、設定、CFG 表示コマンド、E2E を持つ。 | `src/extension.ts`                                    |
 
 ## ディレクトリの見取り図
 
@@ -75,9 +75,10 @@ sequenceDiagram
   Extension->>Server: LanguageClient で接続
   VSCode->>Server: textDocument/didChange
   alt 単一トップレベル要素内の編集
-    Server->>Parser: updateParseResult(previous, text)
+    Server->>Server: contentChangesをバージョン順に保持
+    Server->>Parser: session.update(text, edit)
   else 初回または境界を確定できない編集
-    Server->>Parser: parseModule(text)
+    Server->>Parser: session.createまたはreplace
   end
   Server->>Analyzer: analyze(ast, { source })
   Analyzer->>Parser: 必要に応じて型構文を解析
@@ -88,10 +89,12 @@ sequenceDiagram
   Server-->>VSCode: 診断を差し替え
 ```
 
-`language-server` は変更を debounce し、通常の関数内編集では変更されたトップレベル要素だけを再パースします。
+`language-server` は変更を debounce し、その間の`contentChanges`を通知順に保持します。
+通常の関数内編集では、明示的な編集範囲から対象要素を二分探索し、変更されたトップレベル要素だけを再パースします。
 意味モデルはモジュール全体を再リンクし、トップレベル定義をまたぐ参照の整合性を保ちます。
 表示用の命令結果型は最初の参照時に一度だけ推定し、Inlay Hintsは要求範囲外の型を評価しません。
 構造境界を確定できない変更は全体パースへ戻ります。
+parser sessionは直前の更新戦略と再パースbyte数を公開し、性能ベンチマークから局所更新を確認できます。
 外部 verifier の結果は、編集中のスナップショットと一致する場合だけ採用します。
 
 ## 機能の配置

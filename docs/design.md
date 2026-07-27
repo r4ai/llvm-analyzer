@@ -35,6 +35,11 @@ parser/analyzer は `vscode*` に一切依存しない。
   - **粒度は「構造重視・命令は粗く」**: トップレベル構造は型付きノードへ分解するが、命令内部は構造化せず、出現する識別子参照（`@`/`%`/`!`/`#`/`$`・ラベル）を {@link IdentifierRef} として収集するにとどめる。定義/参照位置が取れれば LSP の definition/references/documentSymbol/foldingRange が成立する。型構文は専用の type パーサで段階的に扱い、各オペコード専用ノードは将来フェーズとする。
   - **走査方針**: `define` 本体は `{`...`}` のブレース対応でブロックを切り出す。関数本体の命令・debug record・use-list order directive と、その他のトップレベルは通常 1 行 1 文として扱うが、`[]` / `{}` / `()` / `<>` や改行を含む文字列で複数行にまたがる場合は閉じるまで 1 要素として集める。
   - 各トップレベルエントリは共通で `defines?`（導入する名前）と `references`（本体の参照列）を持ち、analyzer のシンボル表/定義参照インデックスの直接の入力になる。
+  - `IncrementalParserSession`はソースと解析結果を不変スナップショットとして所有する。
+    明示的編集では対象要素を二分探索し、境界を安全に確定できない場合だけ全文解析へ戻る。
+    初回解析はソース長`n`に対して`O(n)`である。
+    トップレベル要素数`m`、再解析要素長`k`、移動する後続ASTノード数`a_s`に対し、局所編集は`O(log m + k + m)`、位置が動く編集は`O(log m + k + m + a_s)`である。
+    公開ASTが絶対位置の配列を持つため、配列再構成の`O(m)`は明示的に残す。
 - **type**: LLVM IR 型構文を AST 化する純粋パーサ。
   - 公開API: `parseLlvmType(source: string): { type?: LlvmType; diagnostics: ParseDiagnostic[] }`、`formatLlvmType(type): string | undefined`。
   - 対象: scalar / pointer / vector / array / struct / function type / named type / opaque struct。`ptr addrspace(N)`、typed pointer、可変長引数、packed struct を扱う。
@@ -63,7 +68,8 @@ parser/analyzer は `vscode*` に一切依存しない。
 ### language-server（アダプタ）
 
 - `vscode-languageserver/node` + `vscode-languageserver-textdocument`。VSCode 拡張から IPC で起動。
-- ドキュメント変更をデバウンスし、単一トップレベル要素の内側に収まる編集では、その要素だけを再パースする。
+- ドキュメント変更をデバウンスし、待機中の`contentChanges`をバージョン順に保持する。
+  単一トップレベル要素の内側に収まる編集では、更新前の範囲と更新後の終端をparser sessionへ渡し、その要素だけを再パースする。
   要素境界をまたぐ編集や構造境界を検証できない編集は全体パースへ戻る。
   意味モデルはモジュールをまたぐ参照の整合性を保つため、線形時間で全体を再リンクする。
   診断、Workspace Symbols、Call Hierarchyは同じ不変スナップショットを共有し、一回の変更を機能ごとに再解析しない。

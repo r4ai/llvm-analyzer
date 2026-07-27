@@ -10,6 +10,7 @@ import { WorkspaceSymbolIndex } from "../packages/language-server/src/lsp/worksp
 import { parseModule } from "../packages/parser/src/index.ts";
 
 const SIZE_FACTOR = 4;
+const RECOVERY_SIZE_FACTOR = 16;
 const MAX_NORMALIZED_GROWTH = 2;
 const MIN_INCREMENTAL_SPEEDUP = 1.2;
 const MIN_SHARING_SPEEDUP = 1.5;
@@ -50,6 +51,25 @@ for (const scenario of scenarios) {
     );
     failed = true;
   }
+}
+
+const recoverySmall = benchmarkParse(makeWideRecoveryInstruction(500));
+const recoveryLarge = benchmarkParse(makeWideRecoveryInstruction(500 * RECOVERY_SIZE_FACTOR));
+const recoveryNormalizedGrowth =
+  recoveryLarge.parseMs / recoverySmall.parseMs / RECOVERY_SIZE_FACTOR;
+console.log(
+  JSON.stringify({
+    scenario: "wide-instruction-recovery",
+    small: recoverySmall,
+    large: recoveryLarge,
+    normalizedGrowth: round(recoveryNormalizedGrowth),
+  }),
+);
+if (process.argv.includes("--check") && recoveryNormalizedGrowth > MAX_NORMALIZED_GROWTH) {
+  console.error(
+    `wide-instruction-recovery: 構文解析時間が入力倍率を正規化した上で ${round(recoveryNormalizedGrowth)} 倍に増加しました`,
+  );
+  failed = true;
 }
 
 const fileReferenceSmall = benchmarkFileReferences(makeManyFunctions(400, 1));
@@ -151,6 +171,18 @@ function benchmark(source) {
   };
 }
 
+function benchmarkParse(source) {
+  const samples = Array.from({ length: SAMPLES }, () => {
+    const start = performance.now();
+    parseModule(source);
+    return performance.now() - start;
+  });
+  return {
+    bytes: source.length,
+    parseMs: round(median(samples)),
+  };
+}
+
 function parseAndAnalyze(source) {
   const start = performance.now();
   const parsed = parseModule(source);
@@ -204,11 +236,26 @@ function benchmarkLspDocumentLifecycle(source) {
     const fullRebuildMs = performance.now() - fullStart;
 
     const incrementalStart = performance.now();
-    previous = updateDocumentSnapshot(previous, updated, version);
+    previous = updateDocumentSnapshot(previous, updated, version, [
+      {
+        range: {
+          start: previous.document.positionAt(edit.offset),
+          end: previous.document.positionAt(edit.offset + 1),
+        },
+        text: edit.text,
+      },
+    ]);
+    if (previous.parser.strategy !== "incremental") {
+      throw new Error("単一命令内の編集がインクリメンタルに処理されませんでした");
+    }
     assertDefinitionAvailable(previous, edit.referenceOffset);
     const incrementalEditMs = performance.now() - incrementalStart;
     current = updated;
-    return { fullRebuildMs, incrementalEditMs };
+    return {
+      fullRebuildMs,
+      incrementalEditMs,
+      incrementalReparsedBytes: previous.parser.reparsedBytes,
+    };
   });
 
   return {
@@ -216,6 +263,7 @@ function benchmarkLspDocumentLifecycle(source) {
     initialLoadMs: round(median(initialLoadSamples)),
     fullRebuildEditMs: round(median(editSamples.map((sample) => sample.fullRebuildMs))),
     incrementalEditMs: round(median(editSamples.map((sample) => sample.incrementalEditMs))),
+    incrementalReparsedBytes: median(editSamples.map((sample) => sample.incrementalReparsedBytes)),
     visibleTypeQueryMs: round(median(visibleTypeQuerySamples)),
   };
 }
@@ -308,6 +356,17 @@ function makeSharedGlobalReferences(referenceCount) {
     "entry:",
     ...instructions,
     `  ret i32 %v${referenceCount - 1}`,
+    "}",
+  ].join("\n");
+}
+
+function makeWideRecoveryInstruction(incomingCount) {
+  const incoming = Array.from({ length: incomingCount }, () => "[ 0, %entry ]").join(", ");
+  return [
+    "define i32 @wide_recovery() {",
+    "entry:",
+    `  %value = unknown ${incoming} add`,
+    "  ret i32 %value",
     "}",
   ].join("\n");
 }

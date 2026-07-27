@@ -38,8 +38,8 @@ sequenceDiagram
   participant Verifier as external verifier
 
   Client->>Server: textDocument/didChange
-  Server->>Server: 150ms debounce
-  Server->>Parser: parseModule(text)
+  Server->>Server: contentChangesを記録して150ms debounce
+  Server->>Parser: session.update(text, edit)
   Server->>Analyzer: analyze(ast, { source: text })
   Server-->>Client: parser/analyzer diagnostics
   Server->>Verifier: 設定が有効なら遅延実行
@@ -48,8 +48,10 @@ sequenceDiagram
 ```
 
 変更通知は 150ms debounce して解析します。
+待機中に複数の通知が届いた場合は、開始バージョンと終了バージョンを確認し、`contentChanges`を通知順にparser sessionへ適用します。
+バージョンが連続しない場合は推測した変更列を使わず、安全な全文解析へ戻ります。
 解析結果は `DocumentSnapshot` として URI ごとに保存します。
-保存した snapshot は `uri`、`version`、`text`、`TextDocument`、parse 結果、semantic model を持ちます。
+保存した snapshot は `uri`、`version`、`text`、`TextDocument`、parser session、parse 結果、semantic model を持ちます。
 
 診断は二段階で送ります。
 最初に parser 診断と analyzer 診断を送ります。

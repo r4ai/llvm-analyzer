@@ -12,6 +12,7 @@ import {
 import { TextDocuments } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { CallHierarchyIndex } from "./lsp/call-hierarchy.ts";
+import { DocumentChangeJournal } from "./lsp/document-change-journal.ts";
 import { getDocumentLinks } from "./lsp/document-links.ts";
 import {
   getCompletionItems,
@@ -56,7 +57,15 @@ const INLAY_HINTS_CONFIG_SECTION = "llvm-analyzer.inlayHints";
 const SKIPPED_WORKSPACE_DIRS = new Set([".git", "node_modules", "dist", "coverage"]);
 
 const connection = createConnection(ProposedFeatures.all);
-const documents = new TextDocuments(TextDocument);
+const documentChanges = new DocumentChangeJournal();
+const documents = new TextDocuments<TextDocument>({
+  create: (uri, languageId, version, content) =>
+    TextDocument.create(uri, languageId, version, content),
+  update: (document, changes, version) => {
+    documentChanges.record(document.uri, document.version, version, changes);
+    return TextDocument.update(document, changes, version);
+  },
+});
 const snapshots = new Map<string, DocumentSnapshot>();
 const callHierarchy = new CallHierarchyIndex();
 const workspaceSymbols = new WorkspaceSymbolIndex();
@@ -95,6 +104,7 @@ documents.onDidOpen((event) => scheduleAnalysis(event.document));
 documents.onDidChangeContent((event) => scheduleAnalysis(event.document));
 documents.onDidClose((event) => {
   snapshots.delete(event.document.uri);
+  documentChanges.delete(event.document.uri);
   clearPending(event.document.uri);
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
   if (isLlFileUri(event.document.uri)) void closeWorkspaceDocument(event.document.uri);
@@ -338,7 +348,12 @@ function analyzeDocument(document: TextDocument): DocumentSnapshot {
   const snapshot =
     previous === undefined
       ? makeDocumentSnapshot(document.uri, text, document.version)
-      : updateDocumentSnapshot(previous, text, document.version);
+      : updateDocumentSnapshot(
+          previous,
+          text,
+          document.version,
+          documentChanges.consume(document.uri, previous.version, document.version),
+        );
   snapshots.set(document.uri, snapshot);
   if (isLlFileUri(document.uri)) {
     workspaceSymbols.upsertOpenSnapshot(snapshot);
