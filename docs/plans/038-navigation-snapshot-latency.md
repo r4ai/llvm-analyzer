@@ -67,7 +67,9 @@ ReferencesまたはRenameが参照列を要求した時点で、定義と追加�
 型推論は要求駆動のまま維持した。
 シンボルごとのクロージャと`Object.defineProperty`を廃止し、共有getterが保持したASTノードから最初の要求時に型を推定する。
 
-性能ゲートは、初回snapshotとDefinitionを250 ms以下、単一関数内の局所編集後snapshotとDefinitionを100 ms以下とした。
+性能ゲートは、初回snapshotとDefinitionを500 ms以下、単一関数内の局所編集後snapshotとDefinitionを150 ms以下とした。
+macOSのローカル実測は125.3 msと33.8 msだったが、GitHub Ubuntu runnerではparserとanalyzerが約3倍遅く、375.8 msと98.0 msだった。
+CIの絶対上限は後者を基準にし、入力4倍時の正規化増加率と全体再構築に対する高速化率を独立して検査する。
 5 ms未満の短時間操作は倍率に対するノイズ床を使い、20 msの対話操作上限も独立して検査する。
 snapshot共有は相対値だけに依存せず、1.2倍以上の高速化と50 ms以上の重複解析削減を検査する。
 
