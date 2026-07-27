@@ -50,6 +50,8 @@ parser/analyzer は `vscode*` に一切依存しない。
   - モジュールスコープ: `@global`、名前付き型 `%struct.Foo`、名前付きメタデータ、属性グループ。
   - 関数スコープ: ローカルSSA値 `%x`（パラメータ含む）、ラベル。
 - **定義/参照インデックス**: 各シンボルの定義位置と全参照位置（Go to Definition / Find References / Rename の土台）。
+  巨大IRでも参照数に対して二次時間にならないように、同じ定義出現の除外は定数時間で判定する。
+  位置問い合わせ用の出現列は意味解析の完了時に一度だけソース順へ整列し、二分探索する。
 - **型解決**: SSA値の型（Hover表示用）。parser の AST は命令内部を粗く保持するため、`analyze(ast, { source })` で元ソースを渡された場合に、関数引数と命令結果の直近型構文を `parseLlvmType` で読み、表示用文字列として安全に推定する。target datalayout に依存するサイズ計算や verifier 相当の型検査は扱わない。
 - **診断**: 未定義値の参照、重複定義、同一命令内の自己参照、終端命令後の通常命令など（LLVM verifier 全体は再実装しない）。metadata attachment key、関数宣言の引数名、関数スコープの use-list order directive など、LangRef 上の非参照・非命令は誤診断しない。language-server で parser の構文診断とマージし、parser / analyzer / external verifier ごとに有効化と severity を適用する。
 - **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
@@ -62,6 +64,8 @@ parser/analyzer は `vscode*` に一切依存しない。
 
 - `vscode-languageserver/node` + `vscode-languageserver-textdocument`。VSCode 拡張から IPC で起動。
 - ドキュメント変更をデバウンスして全体再パース（初期はインクリメンタル無し）。
+  全文解析では、ASTのrange索引とトークン列の前方向走査を使い、同じソース範囲をトップレベル要素や参照ごとに再走査しない。
+  合成した巨大IRの増加率は `pnpm benchmark:large-ir -- --check` で検証する。
 - 外部 LLVM verifier は language-server の副作用として隔離する。即時診断は parser/analyzer が返し、`llvm-as` などの verifier は追加 debounce 後にバックグラウンド実行する。新しい編集が来たら古い結果は破棄し、実行中プロセスは中止する。
 - ワークスペース横断機能は language-server 側で `.ll` ファイルごとの解析結果を索引化し、parser/analyzer の純粋 API から得たシンボル・呼び出し・ファイル参照候補を LSP 形式へ変換する。
   初期の workspace symbol 索引は URI 単位で `DocumentSnapshot` を保持し、open document・workspace folder 初期走査・watched file events で更新する。

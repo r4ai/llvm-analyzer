@@ -138,6 +138,33 @@ describe("analyze: 定義参照インデックス", () => {
     ]);
   });
 
+  it("同じグローバルへの大量参照を欠落や重複なしで索引化する", () => {
+    const referenceCount = 4_096;
+    const source = [
+      "@shared = global i32 0",
+      "define i32 @read_shared() {",
+      "entry:",
+      ...Array.from(
+        { length: referenceCount },
+        (_, index) => `  %v${index} = load i32, ptr @shared`,
+      ),
+      `  ret i32 %v${referenceCount - 1}`,
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+    const definition = model.symbolAt(posOf(source, "@shared"));
+    const lastReference = posOf(source, "@shared", referenceCount);
+    const offsets = model.referencesOf(definition?.id ?? "").map((ref) => ref.range.start.offset);
+
+    expect(offsets).toHaveLength(referenceCount + 1);
+    expect(new Set(offsets).size).toBe(referenceCount + 1);
+    expect(model.definitionAt(lastReference)?.id).toBe(definition?.id);
+    expect(model.symbolAt({ ...lastReference, offset: lastReference.offset + 3 })?.id).toBe(
+      definition?.id,
+    );
+    expect(model.diagnostics()).toEqual([]);
+  });
+
   it("ラベル参照を同じ関数スコープのラベル定義へリンクする", () => {
     const source = [
       "define void @f() {",

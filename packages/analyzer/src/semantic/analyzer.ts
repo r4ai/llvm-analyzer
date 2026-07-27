@@ -107,6 +107,9 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   const directCalls: DirectCall[] = [];
   const controlFlowGraphs: ControlFlowGraph[] = [];
   const reportUndefinedReferences = options.reportUndefinedReferences ?? true;
+  const typeDefinitionRanges = ast.entries
+    .filter((entry) => entry.kind === "TypeDefinition")
+    .map((entry) => entry.range);
 
   /**
    * スコープへ定義を登録する。
@@ -160,10 +163,11 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
    *
    * @remarks
    * 関数引数はシグネチャ上の出現を定義として登録したあと、同じシグネチャ参照列の解決対象にもなる。
-   * 同一範囲は同じ出現なので、referencesOf と位置インデックスへ二重登録しない。
+   * ASTの各参照は一度だけ解決するため、重複し得るのは定義として先に登録した同じ出現だけである。
+   * 定義と同一範囲の参照は、referencesOf と位置インデックスへ二重登録しない。
    */
   const addReference = (symbol: MutableSymbol, ref: IdentifierRef): void => {
-    if (symbol.references.some((existing) => sameRange(existing.range, ref.range))) return;
+    if (sameRange(symbol.definition.range, ref.range)) return;
     symbol.references.push(ref);
     occurrences.push({ ref, symbol });
   };
@@ -217,7 +221,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   }
 
   const resolveContextual = (ref: IdentifierRef): MutableSymbol | undefined =>
-    resolveContextualRef(options.source, ref, moduleScope, functionScopes);
+    resolveContextualRef(options.source, ref, moduleScope, functionScopes, typeDefinitionRanges);
 
   for (const entry of ast.entries) {
     if (entry.kind !== "FunctionDefinition") {
@@ -274,6 +278,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     }
   }
 
+  occurrences.sort(compareOccurrences);
   return makeModel(
     symbols,
     occurrences,
@@ -315,14 +320,25 @@ const isFunctionParameterRef = (source: string | undefined, ref: IdentifierRef):
   if (ref.kind !== "LocalRef") return false;
   if (!source) return true;
   if (isAttributeTypeArgumentRef(source, ref)) return false;
-  const after = source.slice(ref.range.end.offset).trimStart();
-  if (after.startsWith("%") || after.startsWith("@")) return false;
-  if (after.startsWith("*")) {
-    const afterPointer = after.slice(1).trimStart();
-    if (afterPointer.startsWith("%") || afterPointer.startsWith("@")) return false;
+  const next = nextNonWhitespaceOffset(source, ref.range.end.offset);
+  if (isValueIdentifierStart(source[next])) return false;
+  if (source[next] === "*") {
+    const afterPointer = nextNonWhitespaceOffset(source, next + 1);
+    if (isValueIdentifierStart(source[afterPointer])) return false;
   }
   return inferTypeBefore(source, ref) !== undefined;
 };
+
+/** 指定位置以降にある最初の非空白文字のoffsetを返す。 */
+const nextNonWhitespaceOffset = (source: string, start: number): number => {
+  let offset = start;
+  while (offset < source.length && /\s/u.test(source[offset] ?? "")) offset += 1;
+  return offset;
+};
+
+/** 関数引数名になり得るローカルまたはグローバル識別子の開始文字かを判定する。 */
+const isValueIdentifierStart = (character: string | undefined): boolean =>
+  character === "%" || character === "@";
 
 /**
  * トップレベルエントリで診断対象にする参照を絞る。
@@ -587,8 +603,9 @@ const resolveContextualRef = (
   ref: IdentifierRef,
   moduleScope: Scope,
   functionScopes: ReadonlyMap<string, Scope>,
+  typeDefinitionRanges: readonly Range[],
 ): MutableSymbol | undefined =>
-  resolveTypePositionRef(source, ref, moduleScope) ??
+  resolveTypePositionRef(source, ref, moduleScope, typeDefinitionRanges) ??
   resolveBlockAddressRef(source, ref, functionScopes);
 
 /** 型位置の `%T` は、同名のローカル値よりモジュールスコープの名前付き型を優先する。 */
@@ -596,14 +613,19 @@ const resolveTypePositionRef = (
   source: string | undefined,
   ref: IdentifierRef,
   moduleScope: Scope,
+  typeDefinitionRanges: readonly Range[],
 ): MutableSymbol | undefined => {
-  if (!isTypePositionRef(source, ref)) return undefined;
+  if (!isTypePositionRef(source, ref, typeDefinitionRanges)) return undefined;
   const symbol = moduleScope.symbols.get(ref.name);
   return symbol?.kind === "type" ? symbol : undefined;
 };
 
 /** 粗いトークン文脈から、ローカル識別子が型名として現れているかを判定する。 */
-const isTypePositionRef = (source: string | undefined, ref: IdentifierRef): boolean => {
+const isTypePositionRef = (
+  source: string | undefined,
+  ref: IdentifierRef,
+  typeDefinitionRanges: readonly Range[],
+): boolean => {
   if (!source || ref.kind !== "LocalRef") return false;
   if (isAttributeTypeArgumentRef(source, ref)) return true;
   if (isGetElementPtrTypeOperandRef(source, ref)) return true;
@@ -624,7 +646,7 @@ const isTypePositionRef = (source: string | undefined, ref: IdentifierRef): bool
     previous?.kind === "Opcode" ||
     (previous?.kind === "Keyword" && TYPE_PRECEDING_KEYWORDS.has(previous.value)) ||
     beforeTokens.some((token) => token.kind === "Keyword" && token.value === "type") ||
-    isWithinTopLevelTypeDefinition(source, ref)
+    isWithinTopLevelTypeDefinition(typeDefinitionRanges, ref)
   );
 };
 
@@ -704,29 +726,25 @@ const tokenContextOnLine = (
   return index < 0 ? undefined : { tokens, index };
 };
 
-/** 複数行の `%T = type { ... }` 内にある型参照かを保守的に判定する。 */
-const isWithinTopLevelTypeDefinition = (source: string, ref: IdentifierRef): boolean => {
-  const prefix = source.slice(0, ref.range.start.offset);
-  const previousTopLevelLocal = prefix.lastIndexOf("\n%");
-  const start =
-    previousTopLevelLocal < 0 ? (source.startsWith("%") ? 0 : -1) : previousTopLevelLocal + 1;
-  if (start < 0) return false;
-  const statementPrefix = source.slice(start, ref.range.start.offset);
-  if (!startsWithTypeDefinition(statementPrefix)) return false;
-  return !/\ndefine\b/u.test(statementPrefix);
-};
-
-/** `%T = type` の導入部を token ベースで判定する。quoted 名や空白入り名も lexer に委ねる。 */
-const startsWithTypeDefinition = (source: string): boolean => {
-  const tokens = tokenize(source).filter(
-    (token) => token.kind !== "Eof" && token.kind !== "Comment",
-  );
-  return (
-    tokens[0]?.kind === "LocalIdentifier" &&
-    tokens[1]?.value === "=" &&
-    tokens[2]?.kind === "Keyword" &&
-    tokens[2].value === "type"
-  );
+/**
+ * 参照がトップレベル型定義の範囲内にあるかを二分探索する。
+ *
+ * @param ranges ASTの出現順に並んだ型定義range。
+ * @param ref 判定する識別子参照。
+ * @returns いずれかの型定義に含まれるならtrue。
+ */
+const isWithinTopLevelTypeDefinition = (ranges: readonly Range[], ref: IdentifierRef): boolean => {
+  let low = 0;
+  let high = ranges.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const range = ranges[middle];
+    if (!range) return false;
+    if (ref.range.start.offset < range.start.offset) high = middle - 1;
+    else if (ref.range.end.offset > range.end.offset) low = middle + 1;
+    else return true;
+  }
+  return false;
 };
 
 /**
@@ -779,7 +797,7 @@ const makeModel = (
   const mutableById = new Map(mutableSymbols.map((symbol) => [symbol.id, symbol]));
 
   const symbolAt = (position: Position): SemanticSymbol | undefined =>
-    occurrences.find((occurrence) => contains(occurrence.ref.range, position))?.symbol;
+    occurrenceAt(occurrences, position)?.symbol;
 
   return {
     symbols,
@@ -923,6 +941,34 @@ const contains = (range: Range, position: Position): boolean =>
  */
 const compareRefs = (a: IdentifierRef, b: IdentifierRef): number =>
   a.range.start.offset - b.range.start.offset;
+
+/** 識別子出現をソース位置で比較する。 */
+const compareOccurrences = (a: Occurrence, b: Occurrence): number =>
+  a.ref.range.start.offset - b.ref.range.start.offset;
+
+/**
+ * ソース順に整列済みの識別子出現から、指定位置を含む出現を二分探索する。
+ *
+ * @param occurrences 開始offsetの昇順に整列済みの識別子出現。
+ * @param position 問い合わせるソース位置。
+ * @returns 指定位置を含む出現。識別子外ならundefined。
+ */
+const occurrenceAt = (
+  occurrences: readonly Occurrence[],
+  position: Position,
+): Occurrence | undefined => {
+  let low = 0;
+  let high = occurrences.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const occurrence = occurrences[middle];
+    if (!occurrence) return undefined;
+    if (contains(occurrence.ref.range, position)) return occurrence;
+    if (position.offset < occurrence.ref.range.start.offset) high = middle - 1;
+    else low = middle + 1;
+  }
+  return undefined;
+};
 
 /**
  * 2つの範囲が同じ出現を指すかを判定する。
