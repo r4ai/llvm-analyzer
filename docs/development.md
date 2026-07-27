@@ -52,17 +52,17 @@ pnpm --filter llvm-analyzer-vscode package
 
 ## コマンド
 
-| コマンド                                      | 用途                                                                                     |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `pnpm lint`                                   | oxlint を実行する。                                                                      |
-| `pnpm format`                                 | oxfmt の check を実行する。                                                              |
-| `pnpm typecheck`                              | TypeScript の型検査を実行する。                                                          |
-| `pnpm test`                                   | Vitest を実行する。                                                                      |
-| `pnpm test:coverage`                          | Vitest とカバレッジ計測を実行する。                                                      |
-| `pnpm benchmark:large-ir -- --check`          | 巨大IRの初回解析、全体再構築、インクリメンタル更新、索引共有について性能回帰を検査する。 |
-| `pnpm build`                                  | workspace 全体の build を実行する。                                                      |
-| `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host で fixture workspace を開き、主要 LSP 経路の E2E を実行する。      |
-| `pnpm --filter llvm-analyzer-vscode package`  | VSCode 拡張機能の `.vsix` を作成する。                                                   |
+| コマンド                                      | 用途                                                                                                             |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `pnpm lint`                                   | oxlint を実行する。                                                                                              |
+| `pnpm format`                                 | oxfmt の check を実行する。                                                                                      |
+| `pnpm typecheck`                              | TypeScript の型検査を実行する。                                                                                  |
+| `pnpm test`                                   | Vitest を実行する。                                                                                              |
+| `pnpm test:coverage`                          | Vitest とカバレッジ計測を実行する。                                                                              |
+| `pnpm benchmark:large-ir -- --check`          | 巨大IRの初回解析、全体再構築、インクリメンタル更新、表示範囲の型問い合わせ、索引共有について性能回帰を検査する。 |
+| `pnpm build`                                  | workspace 全体の build を実行する。                                                                              |
+| `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host で fixture workspace を開き、主要 LSP 経路の E2E を実行する。                              |
+| `pnpm --filter llvm-analyzer-vscode package`  | VSCode 拡張機能の `.vsix` を作成する。                                                                           |
 
 ## CI とサプライチェーン対策
 

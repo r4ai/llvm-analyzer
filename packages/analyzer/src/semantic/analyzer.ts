@@ -32,6 +32,7 @@ import type {
   SymbolId,
   SymbolKind,
 } from "./types.ts";
+import { lazyValue } from "./lazy-value.ts";
 import { inferInstructionResultType, inferTypeBefore } from "./type-inference.ts";
 
 const MODULE_SCOPE_ID = "module";
@@ -45,7 +46,7 @@ interface MutableSymbol {
   readonly scopeName: string;
   readonly definition: IdentifierRef;
   readonly references: IdentifierRef[];
-  readonly type?: string;
+  readonly type?: () => string | undefined;
 }
 
 interface Scope {
@@ -124,14 +125,14 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
    * @param scope 定義を登録するスコープ。
    * @param ref 定義名を表す識別子出現。
    * @param kind 登録する意味シンボルの種別。
-   * @param type 推定済みの LLVM IR 型。未推定なら省略する。
+   * @param type 最初の参照時に LLVM IR 型を推定する関数。型を持たない定義では省略する。
    * @returns 登録した内部シンボル。
    */
   const addSymbol = (
     scope: Scope,
     ref: IdentifierRef,
     kind: SymbolKind,
-    type?: string,
+    type?: () => string | undefined,
   ): MutableSymbol => {
     const existing = scope.symbols.get(ref.name);
     const symbol: MutableSymbol = {
@@ -203,16 +204,13 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     const functionScope = makeFunctionScope(entry);
     functionScopes.set(entry.defines.name, functionScope);
     for (const ref of entry.references.filter((r) => isFunctionParameterRef(options.source, r))) {
-      addSymbol(functionScope, ref, "parameter", inferTypeBefore(options.source, ref));
+      addSymbol(functionScope, ref, "parameter", () => inferTypeBefore(options.source, ref));
     }
     for (const block of entry.blocks) {
-      if (block.label) addSymbol(functionScope, block.label, "label", "label");
+      if (block.label) addSymbol(functionScope, block.label, "label", () => "label");
       for (const instruction of block.instructions) {
         if (instruction.result) {
-          addSymbol(
-            functionScope,
-            instruction.result,
-            "local",
+          addSymbol(functionScope, instruction.result, "local", () =>
             inferInstructionResultType(options.source, instruction),
           );
         }
@@ -781,17 +779,17 @@ const makeModel = (
   const byId = new Map(symbols.map((symbol) => [symbol.id, symbol]));
   const mutableById = new Map(mutableSymbols.map((symbol) => [symbol.id, symbol]));
 
-  const symbolAt = (position: Position): SemanticSymbol | undefined =>
+  const mutableSymbolAt = (position: Position): MutableSymbol | undefined =>
     occurrenceAt(occurrences, position)?.symbol;
 
   return {
     symbols,
     symbolAt: (position) => {
-      const symbol = symbolAt(position);
+      const symbol = mutableSymbolAt(position);
       return symbol ? byId.get(symbol.id) : undefined;
     },
     definitionAt: (position) => {
-      const symbol = symbolAt(position);
+      const symbol = mutableSymbolAt(position);
       return symbol ? byId.get(symbol.id) : undefined;
     },
     referencesOf: (symbolId) => mutableById.get(symbolId)?.references.toSorted(compareRefs) ?? [],
@@ -810,16 +808,25 @@ const makeModel = (
  * @param symbol 解析中に使っていた可変シンボル。
  * @returns 参照列をソース順へ並べた公開シンボル。
  */
-const freezeSymbol = (symbol: MutableSymbol): SemanticSymbol => ({
-  id: symbol.id,
-  name: symbol.name,
-  kind: symbol.kind,
-  scopeId: symbol.scopeId,
-  scopeName: symbol.scopeName,
-  definition: symbol.definition,
-  references: symbol.references.toSorted(compareRefs),
-  ...(symbol.type ? { type: symbol.type } : {}),
-});
+const freezeSymbol = (symbol: MutableSymbol): SemanticSymbol => {
+  const common = {
+    id: symbol.id,
+    name: symbol.name,
+    kind: symbol.kind,
+    scopeId: symbol.scopeId,
+    scopeName: symbol.scopeName,
+    definition: symbol.definition,
+    references: symbol.references.toSorted(compareRefs),
+  };
+  if (!symbol.type) return common;
+  const type = lazyValue(symbol.type);
+  return {
+    ...common,
+    get type() {
+      return type();
+    },
+  };
+};
 
 /**
  * AST のトップレベル定義から documentSymbol 用の階層を作る。

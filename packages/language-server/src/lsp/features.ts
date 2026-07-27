@@ -377,16 +377,23 @@ export const getInlayHints = (
 ): InlayHint[] => {
   if (!settings.types.enabled) return [];
   return snapshot.model.symbols
-    .filter((symbol) => (symbol.kind === "parameter" || symbol.kind === "local") && symbol.type)
+    .filter((symbol) => symbol.kind === "parameter" || symbol.kind === "local")
     .filter((symbol) => !range || positionInRange(symbol.definition.range.end, range))
-    .map((symbol) => ({
-      position: {
-        line: symbol.definition.range.end.line,
-        character: symbol.definition.range.end.column,
-      },
-      label: `: ${symbol.type}`,
-      kind: InlayHintKind.Type,
-    }));
+    .flatMap((symbol) => {
+      const type = symbol.type;
+      return type
+        ? [
+            {
+              position: {
+                line: symbol.definition.range.end.line,
+                character: symbol.definition.range.end.column,
+              },
+              label: `: ${type}`,
+              kind: InlayHintKind.Type,
+            },
+          ]
+        : [];
+    });
 };
 
 /** ドキュメント全体の formatting edit を返す。変更不要なら空配列。 */

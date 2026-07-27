@@ -4,13 +4,6 @@ import type { Position, Token, TokenKind } from "./token.ts";
 /** 単一文字の記号トークン。 */
 const PUNCTUATORS = new Set("=,{}()[]<>*:|");
 
-/** 接頭辞付き識別子の名前に使える文字（`@name` の `name` 部分）。 */
-const NAME_CHAR = /[-A-Za-z$._0-9]/;
-/** 名前の先頭になれる文字（数字を除く）。 */
-const NAME_START = /[-A-Za-z$._]/;
-/** バーワード（記号なしの語）の先頭になれる文字。 */
-const BAREWORD_START = /[A-Za-z._]/;
-
 /** C 互換の 16 進浮動小数リテラル。 */
 const C_HEX_FLOAT =
   /[-+]?0[xX](?:(?:[0-9A-Fa-f]+\.[0-9A-Fa-f]*)|(?:\.[0-9A-Fa-f]+)|(?:[0-9A-Fa-f]+))[pP][-+]?\d+/y;
@@ -27,7 +20,28 @@ const SPECIAL_FLOAT = /[-+]?(?:inf|nan|qnan|snan)(?![-A-Za-z$._0-9])/y;
 /** 整数・浮動小数リテラル（符号・指数・先頭ドットを含む）。 */
 const DEC_NUMBER = /[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?/y;
 
+const NUMBER_PATTERNS = [
+  C_HEX_FLOAT,
+  PRECISE_FLOAT_BITS,
+  SIGNED_HEX_INTEGER,
+  HEX_NUMBER,
+  NAN_WITH_PAYLOAD,
+  SPECIAL_FLOAT,
+  DEC_NUMBER,
+] as const;
+
 const isDigit = (ch: string | undefined): boolean => ch !== undefined && ch >= "0" && ch <= "9";
+const isAsciiLetter = (ch: string | undefined): boolean =>
+  ch !== undefined && ((ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z"));
+/** 名前の先頭になれる文字（数字を除く）。 */
+const isNameStart = (ch: string | undefined): boolean =>
+  isAsciiLetter(ch) || ch === "-" || ch === "$" || ch === "." || ch === "_";
+/** 接頭辞付き識別子の名前に使える文字（`@name` の `name` 部分）。 */
+const isNameChar = (ch: string | undefined): boolean => isNameStart(ch) || isDigit(ch);
+/** バーワード（記号なしの語）の先頭になれる文字。 */
+const isBarewordStart = (ch: string | undefined): boolean =>
+  isAsciiLetter(ch) || ch === "." || ch === "_";
+const isHexMarker = (ch: string | undefined): boolean => ch === "x" || ch === "X";
 
 /**
  * LLVM IR ソースを `range` 付きのトークン列へ分解する純粋関数。
@@ -43,16 +57,20 @@ const isDigit = (ch: string | undefined): boolean => ch !== undefined && ch >= "
  */
 export const tokenize = (source: string): Token[] => {
   const length = source.length;
-  const lineStarts = computeLineStarts(source);
+  let positionOffset = 0;
+  let positionLine = 0;
+  let positionLineStart = 0;
   const positionAt = (offset: number): Position => {
-    let lo = 0;
-    let hi = lineStarts.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (lineStarts[mid]! <= offset) lo = mid;
-      else hi = mid - 1;
+    for (; positionOffset < offset; positionOffset += 1) {
+      if (source.charCodeAt(positionOffset) !== 10) continue;
+      positionLine += 1;
+      positionLineStart = positionOffset + 1;
     }
-    return { offset, line: lo, column: offset - lineStarts[lo]! };
+    return {
+      offset,
+      line: positionLine,
+      column: offset - positionLineStart,
+    };
   };
 
   const tokens: Token[] = [];
@@ -74,7 +92,7 @@ export const tokenize = (source: string): Token[] => {
   /** `pos` 以降の名前文字を読み進めた終端を返す。 */
   const scanName = (start: number): number => {
     let end = start;
-    while (end < length && NAME_CHAR.test(source.charAt(end))) end += 1;
+    while (end < length && isNameChar(source[end])) end += 1;
     return end;
   };
 
@@ -86,7 +104,7 @@ export const tokenize = (source: string): Token[] => {
       emit(kind, pos, end);
       return end;
     }
-    if (next !== undefined && (NAME_START.test(next) || isDigit(next))) {
+    if (isNameStart(next) || isDigit(next)) {
       const end = scanName(pos + 1);
       emit(kind, pos, end);
       return end;
@@ -97,15 +115,7 @@ export const tokenize = (source: string): Token[] => {
 
   /** `pos` から数値リテラルにマッチすればその終端、しなければ null。 */
   const matchNumber = (pos: number): number | null => {
-    for (const re of [
-      C_HEX_FLOAT,
-      PRECISE_FLOAT_BITS,
-      SIGNED_HEX_INTEGER,
-      HEX_NUMBER,
-      NAN_WITH_PAYLOAD,
-      SPECIAL_FLOAT,
-      DEC_NUMBER,
-    ]) {
+    for (const re of NUMBER_PATTERNS) {
       re.lastIndex = pos;
       const matched = re.exec(source);
       if (matched && matched.index === pos && matched[0].length > 0) {
@@ -164,7 +174,7 @@ export const tokenize = (source: string): Token[] => {
     }
     if (ch === "!") {
       const next = source[pos + 1];
-      if (next !== undefined && (NAME_START.test(next) || isDigit(next))) {
+      if (isNameStart(next) || isDigit(next)) {
         const end = scanName(pos + 1);
         emit("MetadataIdentifier", pos, end);
         pos = end;
@@ -181,7 +191,7 @@ export const tokenize = (source: string): Token[] => {
         while (end < length && isDigit(source[end])) end += 1;
         emit("AttributeGroup", pos, end);
         pos = end;
-      } else if (next !== undefined && NAME_START.test(next)) {
+      } else if (isNameStart(next)) {
         const end = scanName(pos + 1);
         if (source.slice(pos + 1, end).startsWith("dbg_")) {
           emit("DebugRecord", pos, end);
@@ -214,10 +224,8 @@ export const tokenize = (source: string): Token[] => {
       ch === "+" ||
       ch === "-" ||
       ch === "." ||
-      ((ch === "f" || ch === "F") &&
-        source[pos + 1] === "0" &&
-        /[xX]/.test(source[pos + 2] ?? "")) ||
-      ((ch === "s" || ch === "u") && source[pos + 1] === "0" && /[xX]/.test(source[pos + 2] ?? ""))
+      ((ch === "f" || ch === "F") && source[pos + 1] === "0" && isHexMarker(source[pos + 2])) ||
+      ((ch === "s" || ch === "u") && source[pos + 1] === "0" && isHexMarker(source[pos + 2]))
     ) {
       const end = matchNumber(pos);
       if (end !== null) {
@@ -228,7 +236,7 @@ export const tokenize = (source: string): Token[] => {
     }
 
     // バーワード（キーワード/オペコード/型/定数/ラベル/未分類）
-    if (BAREWORD_START.test(ch)) {
+    if (isBarewordStart(ch)) {
       const end = scanName(pos);
       // 直後が単独の `:` ならラベル定義名
       if (source[end] === ":" && source[end + 1] !== ":") {
@@ -254,13 +262,4 @@ export const tokenize = (source: string): Token[] => {
 
   emit("Eof", length, length);
   return tokens;
-};
-
-/** ソース中の各行の開始オフセット一覧（`positionAt` 用）。 */
-const computeLineStarts = (source: string): number[] => {
-  const starts = [0];
-  for (let i = 0; i < source.length; i += 1) {
-    if (source[i] === "\n") starts.push(i + 1);
-  }
-  return starts;
 };

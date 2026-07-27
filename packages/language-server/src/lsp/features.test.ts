@@ -430,6 +430,45 @@ describe("LSP 機能アダプタ", () => {
     ]);
   });
 
+  it("inlayHint は要求 range 外の型を評価しない", () => {
+    const parameter = snapshot.model.symbols.find((symbol) => symbol.kind === "parameter")!;
+    const local = snapshot.model.symbols.find((symbol) => symbol.kind === "local")!;
+    const outside = {
+      ...parameter,
+      get type(): string {
+        throw new Error("要求範囲外の型を評価しました");
+      },
+    };
+    const rangedSnapshot = {
+      ...snapshot,
+      model: {
+        ...snapshot.model,
+        symbols: [outside, local],
+      },
+    };
+
+    expect(
+      getInlayHints(rangedSnapshot, {
+        start: { line: 4, character: 5 },
+        end: { line: 4, character: 99 },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        position: { line: 4, character: 6 },
+        label: ": i32",
+      }),
+    ]);
+  });
+
+  it("inlayHint は型を推定できないSSA値を表示しない", () => {
+    const unknown = makeDocumentSnapshot(
+      "file:///unknown-type.ll",
+      ["define void @f() {", "entry:", "  %x = custom_operation", "  ret void", "}"].join("\n"),
+    );
+
+    expect(getInlayHints(unknown)).toEqual([]);
+  });
+
   it("inlayHint は設定で型表示を無効化できる", () => {
     expect(getInlayHints(snapshot, undefined, { types: { enabled: false } })).toEqual([]);
     expect(normalizeInlayHintSettings({ types: { enabled: "yes" } })).toEqual(

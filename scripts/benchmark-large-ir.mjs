@@ -5,6 +5,7 @@ import {
   updateDocumentSnapshot,
 } from "../packages/language-server/src/index.ts";
 import { CallHierarchyIndex } from "../packages/language-server/src/lsp/call-hierarchy.ts";
+import { getInlayHints } from "../packages/language-server/src/lsp/features.ts";
 import { WorkspaceSymbolIndex } from "../packages/language-server/src/lsp/workspace-symbols.ts";
 import { parseModule } from "../packages/parser/src/index.ts";
 
@@ -78,6 +79,8 @@ const lifecycleNormalizedGrowth = {
     lifecycleLarge.fullRebuildEditMs / lifecycleSmall.fullRebuildEditMs / SIZE_FACTOR,
   incrementalEdit:
     lifecycleLarge.incrementalEditMs / lifecycleSmall.incrementalEditMs / SIZE_FACTOR,
+  visibleTypeQuery:
+    lifecycleLarge.visibleTypeQueryMs / lifecycleSmall.visibleTypeQueryMs / SIZE_FACTOR,
 };
 const lifecycleSpeedup = lifecycleLarge.fullRebuildEditMs / lifecycleLarge.incrementalEditMs;
 console.log(
@@ -89,6 +92,7 @@ console.log(
       initialLoad: round(lifecycleNormalizedGrowth.initialLoad),
       fullRebuildEdit: round(lifecycleNormalizedGrowth.fullRebuildEdit),
       incrementalEdit: round(lifecycleNormalizedGrowth.incrementalEdit),
+      visibleTypeQuery: round(lifecycleNormalizedGrowth.visibleTypeQuery),
     },
     incrementalSpeedup: round(lifecycleSpeedup),
   }),
@@ -98,7 +102,7 @@ if (
   Object.values(lifecycleNormalizedGrowth).some((growth) => growth > MAX_NORMALIZED_GROWTH)
 ) {
   console.error(
-    `lsp-document-lifecycle: 入力倍率を正規化した増加率が initial-load=${round(lifecycleNormalizedGrowth.initialLoad)}, full-rebuild-edit=${round(lifecycleNormalizedGrowth.fullRebuildEdit)}, incremental-edit=${round(lifecycleNormalizedGrowth.incrementalEdit)} になりました`,
+    `lsp-document-lifecycle: 入力倍率を正規化した増加率が initial-load=${round(lifecycleNormalizedGrowth.initialLoad)}, full-rebuild-edit=${round(lifecycleNormalizedGrowth.fullRebuildEdit)}, incremental-edit=${round(lifecycleNormalizedGrowth.incrementalEdit)}, visible-type-query=${round(lifecycleNormalizedGrowth.visibleTypeQuery)} になりました`,
   );
   failed = true;
 }
@@ -180,13 +184,19 @@ function benchmarkLspDocumentLifecycle(source) {
     assertDefinitionAvailable(snapshot, referenceOffset);
     return performance.now() - start;
   });
+  const visibleTypeQuerySamples = Array.from({ length: SAMPLES }, (_, index) => {
+    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, SAMPLES + index + 1);
+    const start = performance.now();
+    assertVisibleTypesAvailable(snapshot, referenceOffset);
+    return performance.now() - start;
+  });
 
   let current = source;
-  let previous = makeDocumentSnapshot(LSP_DOCUMENT_URI, current, SAMPLES + 1);
+  let previous = makeDocumentSnapshot(LSP_DOCUMENT_URI, current, SAMPLES * 2 + 1);
   const editSamples = Array.from({ length: SAMPLES }, (_, index) => {
     const edit = incrementalEditAt(current, index);
     const updated = replaceAt(current, edit.offset, edit.text);
-    const version = SAMPLES + index + 2;
+    const version = SAMPLES * 2 + index + 2;
 
     const fullStart = performance.now();
     const full = makeDocumentSnapshot(LSP_DOCUMENT_URI, updated, version);
@@ -206,6 +216,7 @@ function benchmarkLspDocumentLifecycle(source) {
     initialLoadMs: round(median(initialLoadSamples)),
     fullRebuildEditMs: round(median(editSamples.map((sample) => sample.fullRebuildMs))),
     incrementalEditMs: round(median(editSamples.map((sample) => sample.incrementalEditMs))),
+    visibleTypeQueryMs: round(median(visibleTypeQuerySamples)),
   };
 }
 
@@ -259,6 +270,17 @@ function assertDefinitionAvailable(snapshot, referenceOffset) {
   }
   const definition = getDefinition(snapshot, snapshot.document.positionAt(referenceOffset));
   if (!definition) throw new Error("差分編集後の定義参照を解決できませんでした");
+}
+
+function assertVisibleTypesAvailable(snapshot, referenceOffset) {
+  const referencePosition = snapshot.document.positionAt(referenceOffset);
+  const hints = getInlayHints(snapshot, {
+    start: { line: Math.max(0, referencePosition.line - 45), character: 0 },
+    end: { line: referencePosition.line + 2, character: 0 },
+  });
+  if (hints.length < 40 || hints.some((hint) => hint.label !== ": i32")) {
+    throw new Error("表示範囲の型情報を解決できませんでした");
+  }
 }
 
 function makeManyFunctions(functionCount, instructionCount) {

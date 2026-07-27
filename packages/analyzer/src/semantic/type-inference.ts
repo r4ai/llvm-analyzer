@@ -37,8 +37,7 @@ const SPECIAL_RESULT_OPCODES = new Set([
   "atomicrmw",
 ]);
 
-/** 正規表現に安全に埋め込めるよう、メタ文字をエスケープする。 */
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+const CONVERSION_TARGET = /(?:^|\s)to(?=\s|$)/u;
 
 /**
  * 命令結果の型を推定する。
@@ -58,14 +57,14 @@ export const inferInstructionResultType = (
   if (!source || !instruction.opcode) return undefined;
   if (instruction.opcode === "alloca" || instruction.opcode === "getelementptr") return "ptr";
   const line = source.slice(instruction.range.start.offset, instruction.range.end.offset);
-  const opcodeMatch = new RegExp(`(?:^|[\\s=])${escapeRegExp(instruction.opcode)}\\b`, "u").exec(
-    line,
-  )!;
-  const afterOpcode = line.slice(opcodeMatch.index + opcodeMatch[0].length);
+  const assignmentEnd = line.indexOf("=") + 1;
+  const opcodeStart = line.indexOf(instruction.opcode, assignmentEnd);
+  const opcodeEnd = opcodeStart + instruction.opcode.length;
+  const afterOpcode = line.slice(opcodeEnd);
   if (instruction.opcode === "icmp" || instruction.opcode === "fcmp")
     return compareResultType(afterOpcode);
   if (CONVERSION_OPCODES.has(instruction.opcode)) {
-    const toIndex = indexOfWord(afterOpcode, "to");
+    const toIndex = indexOfConversionTarget(afterOpcode);
     if (toIndex < 0) return undefined;
     return leadingTypeText(afterOpcode.slice(toIndex + "to".length));
   }
@@ -336,8 +335,8 @@ const updateTypeDepth = (depth: number, value: string): number => {
   return depth;
 };
 
-/** 単語境界を見てキーワードの位置を探す。 */
-const indexOfWord = (source: string, word: string): number => {
-  const match = new RegExp(String.raw`(?:^|\s)${escapeRegExp(word)}(?:\s|$)`, "u").exec(source);
-  return match ? match.index + match[0].indexOf(word) : -1;
+/** 単語境界を見て変換先を導入する `to` の位置を探す。 */
+const indexOfConversionTarget = (source: string): number => {
+  const match = CONVERSION_TARGET.exec(source);
+  return match ? match.index + match[0].indexOf("to") : -1;
 };
