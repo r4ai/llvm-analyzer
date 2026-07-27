@@ -149,6 +149,11 @@
   - Workspace Symbols、Call Hierarchy、Code Action、Document Linksに問い合わせ用索引とsnapshot単位の再利用を追加した
   - CFG commandをLanguage Serverの解析済みsnapshotへ接続し、拡張ホストでの全文再解析を除いた
   - 主要LSP操作の初回時間、再要求時間、入力4倍時の増加率を巨大IRベンチマークで検査するようにした
+- [x] **巨大LLVM IRのコードナビゲーション待ち時間**（2026-07-28）
+  - 解析中と公開後の意味シンボルを一表現へ統合し、公開時の全シンボル複製を除いた
+  - 未参照レジスタの参照配列と、シンボルごとの型推論クロージャを作らないようにした
+  - 初回snapshotと編集後snapshotを含むDefinition待ち時間へ250 msと100 msの性能上限を追加した
+  - 短時間操作のノイズ床とsnapshot共有の絶対削減時間を検査し、環境ノイズと実際の回帰を分けた
 
 ## メモ
 

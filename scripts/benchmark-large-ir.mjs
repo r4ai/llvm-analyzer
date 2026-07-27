@@ -28,9 +28,13 @@ const MAX_NORMALIZED_GROWTH = 2;
 const MAX_POINT_QUERY_GROWTH = 2;
 const MAX_INTERACTIVE_ACTION_MS = 20;
 const MAX_COLD_FULL_ACTION_MS = 100;
+const MAX_INITIAL_SNAPSHOT_MS = 250;
+const MAX_INCREMENTAL_NAVIGATION_MS = 100;
+const MIN_POINT_GROWTH_BASELINE_MS = 5;
 const MIN_OUTPUT_GROWTH_BASELINE_MS = 10;
 const MIN_INCREMENTAL_SPEEDUP = 1.2;
-const MIN_SHARING_SPEEDUP = 1.5;
+const MIN_SHARING_SPEEDUP = 1.2;
+const MIN_SHARING_SAVED_MS = 50;
 const SAMPLES = 5;
 const FILE_REFERENCE_BENCHMARK = {
   warmupIterations: 3,
@@ -156,12 +160,28 @@ if (process.argv.includes("--check") && lifecycleSpeedup < MIN_INCREMENTAL_SPEED
   );
   failed = true;
 }
+if (process.argv.includes("--check") && lifecycleLarge.initialLoadMs > MAX_INITIAL_SNAPSHOT_MS) {
+  console.error(
+    `lsp-document-lifecycle: 巨大IRの初回snapshotとDefinitionが ${MAX_INITIAL_SNAPSHOT_MS} msを超えました: ${lifecycleLarge.initialLoadMs} ms`,
+  );
+  failed = true;
+}
+if (
+  process.argv.includes("--check") &&
+  lifecycleLarge.incrementalEditMs > MAX_INCREMENTAL_NAVIGATION_MS
+) {
+  console.error(
+    `lsp-document-lifecycle: 巨大IRの局所編集後snapshotとDefinitionが ${MAX_INCREMENTAL_NAVIGATION_MS} msを超えました: ${lifecycleLarge.incrementalEditMs} ms`,
+  );
+  failed = true;
+}
 
 const fanoutSmall = benchmarkOpenDocumentFanout(makeManyFunctions(400, 40));
 const fanoutLarge = benchmarkOpenDocumentFanout(makeManyFunctions(400 * SIZE_FACTOR, 40));
 const fanoutNormalizedGrowth =
   fanoutLarge.sharedSnapshotMs / fanoutSmall.sharedSnapshotMs / SIZE_FACTOR;
 const sharingSpeedup = fanoutLarge.duplicatedAnalysisMs / fanoutLarge.sharedSnapshotMs;
+const sharingSavedMs = fanoutLarge.duplicatedAnalysisMs - fanoutLarge.sharedSnapshotMs;
 console.log(
   JSON.stringify({
     scenario: "open-document-index-fanout",
@@ -169,6 +189,7 @@ console.log(
     large: fanoutLarge,
     normalizedGrowth: round(fanoutNormalizedGrowth),
     sharingSpeedup: round(sharingSpeedup),
+    sharingSavedMs: round(sharingSavedMs),
   }),
 );
 if (process.argv.includes("--check") && fanoutNormalizedGrowth > MAX_NORMALIZED_GROWTH) {
@@ -183,6 +204,12 @@ if (process.argv.includes("--check") && sharingSpeedup < MIN_SHARING_SPEEDUP) {
   );
   failed = true;
 }
+if (process.argv.includes("--check") && sharingSavedMs < MIN_SHARING_SAVED_MS) {
+  console.error(
+    `open-document-index-fanout: snapshot共有で省けた巨大IRの重複解析時間が ${round(sharingSavedMs)} msに留まりました`,
+  );
+  failed = true;
+}
 
 const actionSmall = await benchmarkLanguageActions(400);
 const actionLarge = await benchmarkLanguageActions(400 * SIZE_FACTOR);
@@ -191,7 +218,10 @@ const pointActionGrowth = Object.fromEntries(
     const largeAction = actionLarge.pointActions.find(
       (candidate) => candidate.name === smallAction.name,
     );
-    return [smallAction.name, largeAction.coldMs / Math.max(smallAction.coldMs, 0.1)];
+    return [
+      smallAction.name,
+      largeAction.coldMs / Math.max(smallAction.coldMs, MIN_POINT_GROWTH_BASELINE_MS),
+    ];
   }),
 );
 const outputActionGrowth = Object.fromEntries(

@@ -38,16 +38,86 @@ import { inferInstructionResultType, inferTypeBefore } from "./type-inference.ts
 const MODULE_SCOPE_ID = "module";
 const MODULE_SCOPE_NAME = "module";
 
-interface MutableSymbol {
+type SymbolTypeSource = IdentifierRef | Instruction | "label";
+
+/**
+ * 解析中の追記と、解析後の読み取り専用公開を一つの表現で扱う意味シンボル。
+ *
+ * @remarks
+ * 未参照シンボルへ一要素配列と型推論クロージャを割り当てない。
+ * Definitionの位置問い合わせでは参照列も型も不要なため、必要になったプロパティだけを構築する。
+ */
+class MutableSymbol implements SemanticSymbol {
   readonly id: SymbolId;
   readonly name: string;
   readonly kind: SymbolKind;
   readonly scopeId: string;
   readonly scopeName: string;
   readonly definition: IdentifierRef;
-  readonly references: IdentifierRef[];
-  readonly type?: () => string | undefined;
+  private additionalReferences: IdentifierRef[] | undefined;
+  private publicReferences: readonly IdentifierRef[] | undefined;
+  private didInferType = false;
+  private inferredType: string | undefined;
+  private readonly source: string | undefined;
+  private readonly typeSource: SymbolTypeSource | undefined;
+
+  constructor(
+    id: SymbolId,
+    name: string,
+    kind: SymbolKind,
+    scopeId: string,
+    scopeName: string,
+    definition: IdentifierRef,
+    source: string | undefined,
+    typeSource: SymbolTypeSource | undefined,
+  ) {
+    this.id = id;
+    this.name = name;
+    this.kind = kind;
+    this.scopeId = scopeId;
+    this.scopeName = scopeName;
+    this.definition = definition;
+    this.source = source;
+    this.typeSource = typeSource;
+  }
+
+  get references(): readonly IdentifierRef[] {
+    this.publicReferences ??= this.makeReferences();
+    return this.publicReferences;
+  }
+
+  get type(): string | undefined {
+    if (this.typeSource === undefined) return undefined;
+    if (!this.didInferType) {
+      this.inferredType = inferSymbolType(this.source, this.typeSource);
+      this.didInferType = true;
+    }
+    return this.inferredType;
+  }
+
+  /** 解決済み参照を解析中の列へ追加する。 */
+  addReference(ref: IdentifierRef): void {
+    this.additionalReferences ??= [];
+    this.additionalReferences.push(ref);
+  }
+
+  private makeReferences(): readonly IdentifierRef[] {
+    if (!this.additionalReferences) return [this.definition];
+    const references = [this.definition, ...this.additionalReferences];
+    return isSourceOrdered(references) ? references : references.toSorted(compareRefs);
+  }
 }
+
+/** シンボル種別に応じた表示用型を要求時に一度だけ推定する。 */
+const inferSymbolType = (
+  source: string | undefined,
+  typeSource: SymbolTypeSource,
+): string | undefined => {
+  if (typeSource === "label") return "label";
+  return typeSource.kind === "Instruction"
+    ? inferInstructionResultType(source, typeSource)
+    : inferTypeBefore(source, typeSource);
+};
 
 interface Scope {
   readonly id: string;
@@ -132,19 +202,19 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     scope: Scope,
     ref: IdentifierRef,
     kind: SymbolKind,
-    type?: () => string | undefined,
+    typeSource?: SymbolTypeSource,
   ): MutableSymbol => {
     const existing = scope.symbols.get(ref.name);
-    const symbol: MutableSymbol = {
-      id: `${scope.id}:${ref.name}:${symbols.length}`,
-      name: ref.name,
+    const symbol = new MutableSymbol(
+      `${scope.id}:${ref.name}:${symbols.length}`,
+      ref.name,
       kind,
-      scopeId: scope.id,
-      scopeName: scope.name,
-      definition: ref,
-      references: [ref],
-      ...(type ? { type } : {}),
-    };
+      scope.id,
+      scope.name,
+      ref,
+      options.source,
+      typeSource,
+    );
     if (existing) {
       diagnostics.push({
         code: "duplicate-definition",
@@ -172,7 +242,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
    */
   const addReference = (symbol: MutableSymbol, ref: IdentifierRef): void => {
     if (sameRange(symbol.definition.range, ref.range)) return;
-    symbol.references.push(ref);
+    symbol.addReference(ref);
     occurrences.push({ ref, symbol });
   };
 
@@ -204,15 +274,13 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
     const functionScope = makeFunctionScope(entry);
     functionScopes.set(entry.defines.name, functionScope);
     for (const ref of entry.references.filter((r) => isFunctionParameterRef(options.source, r))) {
-      addSymbol(functionScope, ref, "parameter", () => inferTypeBefore(options.source, ref));
+      addSymbol(functionScope, ref, "parameter", ref);
     }
     for (const block of entry.blocks) {
-      if (block.label) addSymbol(functionScope, block.label, "label", () => "label");
+      if (block.label) addSymbol(functionScope, block.label, "label", "label");
       for (const instruction of block.instructions) {
         if (instruction.result) {
-          addSymbol(functionScope, instruction.result, "local", () =>
-            inferInstructionResultType(options.source, instruction),
-          );
+          addSymbol(functionScope, instruction.result, "local", instruction);
         }
       }
     }
@@ -775,43 +843,28 @@ const makeModel = (
   directCalls: readonly DirectCall[],
   controlFlowGraphs: readonly ControlFlowGraph[],
 ): SemanticModel => {
-  const symbols = mutableSymbols.map((symbol) => freezeSymbol(symbol));
-  const byId = new Map(symbols.map((symbol) => [symbol.id, symbol]));
-  const symbolsByDefinition = occurrences.flatMap((occurrence) =>
-    sameRange(occurrence.ref.range, occurrence.symbol.definition.range)
-      ? [byId.get(occurrence.symbol.id)!]
-      : [],
-  );
-  const symbolsByScope = groupSymbolsByScope(symbols);
+  const symbols: readonly SemanticSymbol[] = mutableSymbols;
+  const symbolsByDefinition = definitionSymbolsOf(occurrences);
+  const symbolsByScope = lazyValue(() => groupSymbolsByScope(symbols));
   const documentSymbols = lazyValue(() => makeDocumentSymbols(entries, functionScopes));
-  const publicOccurrences = lazyValue(() =>
-    occurrences.map((occurrence) => ({
-      ref: occurrence.ref,
-      symbol: byId.get(occurrence.symbol.id)!,
-    })),
-  );
 
-  const publicOccurrenceAt = (position: Position) => {
-    const occurrence = occurrenceAt(occurrences, position);
-    return occurrence
-      ? { ref: occurrence.ref, symbol: byId.get(occurrence.symbol.id)! }
-      : undefined;
-  };
+  const publicOccurrenceAt = (position: Position) => occurrenceAt(occurrences, position);
   const graphAt = (position: Position) => rangeEntryAt(controlFlowGraphs, position);
 
   return {
     symbols,
     occurrenceAt: publicOccurrenceAt,
-    occurrences: publicOccurrences,
+    occurrences: () => occurrences,
     symbolAt: (position) => publicOccurrenceAt(position)?.symbol,
     definitionAt: (position) => publicOccurrenceAt(position)?.symbol,
-    referencesOf: (symbolId) => byId.get(symbolId)?.references ?? [],
+    referencesOf: (symbolId) => symbolById(symbols, symbolId)?.references ?? [],
     symbolsInRange: (range) => symbolsWithin(symbolsByDefinition, range),
     visibleSymbolsAt: (position) => {
-      const moduleSymbols = symbolsByScope.get(MODULE_SCOPE_ID) ?? [];
+      const symbolsByScopeValue = symbolsByScope();
+      const moduleSymbols = symbolsByScopeValue.get(MODULE_SCOPE_ID) ?? [];
       const graph = graphAt(position);
       return graph
-        ? [...moduleSymbols, ...symbolsByScope.get(`function:${graph.functionName}`)!]
+        ? [...moduleSymbols, ...symbolsByScopeValue.get(`function:${graph.functionName}`)!]
         : moduleSymbols;
     },
     documentSymbols,
@@ -823,29 +876,43 @@ const makeModel = (
 };
 
 /**
- * 内部の可変シンボルを公開用の読み取り専用シンボルへ写す。
+ * 解析結果内IDからシンボルを定数時間で返す。
  *
- * @param symbol 解析中に使っていた可変シンボル。
- * @returns 参照列をソース順へ並べた公開シンボル。
+ * @param symbols 登録順の公開シンボル列。
+ * @param symbolId 同じ解析結果が発行したシンボルID。
+ * @returns IDがこの解析結果のシンボルと一致すればそのシンボル、未知のIDなら`undefined`。
+ *
+ * @remarks
+ * ID末尾の登録順インデックスを使い、最初のReferences要求で全シンボルのMapを構築しない。
+ * 名前にはコロンを含められるため、末尾の区切りだけを使う。
  */
-const freezeSymbol = (symbol: MutableSymbol): SemanticSymbol => {
-  const common = {
-    id: symbol.id,
-    name: symbol.name,
-    kind: symbol.kind,
-    scopeId: symbol.scopeId,
-    scopeName: symbol.scopeName,
-    definition: symbol.definition,
-    references: symbol.references.toSorted(compareRefs),
-  };
-  if (!symbol.type) return common;
-  const type = lazyValue(symbol.type);
-  return {
-    ...common,
-    get type() {
-      return type();
-    },
-  };
+const symbolById = (
+  symbols: readonly SemanticSymbol[],
+  symbolId: SymbolId,
+): SemanticSymbol | undefined => {
+  const separator = symbolId.lastIndexOf(":");
+  const index = Number(symbolId.slice(separator + 1));
+  const symbol = Number.isInteger(index) ? symbols[index] : undefined;
+  return symbol?.id === symbolId ? symbol : undefined;
+};
+
+/** 参照列がソース位置の昇順かを返す。 */
+const isSourceOrdered = (references: readonly IdentifierRef[]): boolean => {
+  for (let index = 1; index < references.length; index += 1) {
+    if (compareRefs(references[index - 1]!, references[index]!) > 0) return false;
+  }
+  return true;
+};
+
+/** ソース順の出現列から定義シンボルだけを同じ順序で取り出す。 */
+const definitionSymbolsOf = (occurrences: readonly Occurrence[]): readonly SemanticSymbol[] => {
+  const symbols: SemanticSymbol[] = [];
+  for (const occurrence of occurrences) {
+    if (sameRange(occurrence.ref.range, occurrence.symbol.definition.range)) {
+      symbols.push(occurrence.symbol);
+    }
+  }
+  return symbols;
 };
 
 /**
