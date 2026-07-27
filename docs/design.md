@@ -65,7 +65,7 @@ parser/analyzer は `vscode*` に一切依存しない。
 - `vscode-languageserver/node` + `vscode-languageserver-textdocument`。VSCode 拡張から IPC で起動。
 - ドキュメント変更をデバウンスして全体再パース（初期はインクリメンタル無し）。
   全文解析では、ASTのrange索引とトークン列の前方向走査を使い、同じソース範囲をトップレベル要素や参照ごとに再走査しない。
-  合成した巨大IRの増加率は `pnpm benchmark:large-ir -- --check` で検証する。
+  合成した巨大IRの初回解析と、差分変更後のスナップショット再構築の増加率は `pnpm benchmark:large-ir -- --check` で検証する。
 - 外部 LLVM verifier は language-server の副作用として隔離する。即時診断は parser/analyzer が返し、`llvm-as` などの verifier は追加 debounce 後にバックグラウンド実行する。新しい編集が来たら古い結果は破棄し、実行中プロセスは中止する。
 - ワークスペース横断機能は language-server 側で `.ll` ファイルごとの解析結果を索引化し、parser/analyzer の純粋 API から得たシンボル・呼び出し・ファイル参照候補を LSP 形式へ変換する。
   初期の workspace symbol 索引は URI 単位で `DocumentSnapshot` を保持し、open document・workspace folder 初期走査・watched file events で更新する。
