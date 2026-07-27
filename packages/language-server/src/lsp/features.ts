@@ -10,6 +10,7 @@ import {
   formatLlvmIr,
   parseModule,
   tokenize,
+  updateParseResult,
   type ParseDiagnostic,
   type Range,
 } from "@llvm-analyzer/parser";
@@ -184,6 +185,29 @@ export const makeDocumentSnapshot = (uri: string, text: string, version = 1): Do
   const parse = parseModule(text);
   const model = analyze(parse.ast, { source: text });
   return { uri, version, text, document, parse, model };
+};
+
+/**
+ * 前回の解析結果を使い、更新後の不変スナップショットを作る。
+ *
+ * @param previous 同じURIに対応する直前のスナップショット。
+ * @param text 更新後のLLVM IRソース。
+ * @param version 更新後のドキュメントバージョン。
+ * @returns 局所パースまたは安全な全体パースから作ったスナップショット。
+ *
+ * @remarks
+ * parserが変更対象を単一トップレベル要素へ限定できない場合は、全体を再パースする。
+ * 意味モデルはモジュールをまたぐ参照契約を維持するため、更新後のAST全体を線形時間で再リンクする。
+ */
+export const updateDocumentSnapshot = (
+  previous: DocumentSnapshot,
+  text: string,
+  version: number,
+): DocumentSnapshot => {
+  const document = TextDocument.create(previous.uri, "llvm", version, text);
+  const parse = updateParseResult(previous.parse, previous.text, text) ?? parseModule(text);
+  const model = analyze(parse.ast, { source: text });
+  return { uri: previous.uri, version, text, document, parse, model };
 };
 
 /** hover 表示を返す。識別子外では undefined。 */

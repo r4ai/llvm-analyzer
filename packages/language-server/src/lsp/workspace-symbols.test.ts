@@ -3,6 +3,7 @@ import { SymbolKind } from "vscode-languageserver";
 import { describe, expect, it } from "vitest";
 
 import { WorkspaceSymbolIndex, workspaceSymbolProviderCapability } from "./workspace-symbols.ts";
+import { makeDocumentSnapshot } from "./features.ts";
 
 describe("WorkspaceSymbolIndex", () => {
   it("workspace/symbol provider capability を有効にする", () => {
@@ -75,6 +76,16 @@ describe("WorkspaceSymbolIndex", () => {
     index.closeOpenDocument("file:///a.ll", "@disk = global i32 0\n");
 
     expect(index.search("").map((symbol) => symbol.name)).toEqual(["@disk"]);
+  });
+
+  it("解析済みopen documentを受け取り、再解析せずに索引へ登録する", () => {
+    const index = new WorkspaceSymbolIndex();
+    const snapshot = makeDocumentSnapshot("file:///a.ll", "@draft = global i32 0\n", 2);
+
+    index.upsertOpenSnapshot(snapshot);
+    index.upsertFile(snapshot.uri, "@disk = global i32 0\n");
+
+    expect(index.search("").map((symbol) => symbol.name)).toEqual(["@draft"]);
   });
 
   it("open document close 時に disk snapshot が読めなければ索引を破棄する", () => {

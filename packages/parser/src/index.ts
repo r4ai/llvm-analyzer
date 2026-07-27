@@ -1,6 +1,6 @@
 export { tokenize } from "./lexer/index.ts";
 export type { Position, Range, Token, TokenKind } from "./lexer/index.ts";
-export { parseModule } from "./parser/index.ts";
+export { parseModule, updateParseResult } from "./parser/index.ts";
 export { formatLlvmIr } from "./formatter/index.ts";
 export { formatLlvmType, parseLlvmType } from "./type/index.ts";
 export type {
