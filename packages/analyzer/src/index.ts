@@ -12,6 +12,7 @@ export type {
   DirectCall,
   DocumentSymbol,
   SemanticModel,
+  SemanticOccurrence,
   SemanticSymbol,
   SymbolId,
   SymbolKind,

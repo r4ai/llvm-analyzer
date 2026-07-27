@@ -8,13 +8,15 @@ describe("CallHierarchyIndex", () => {
     const index = new CallHierarchyIndex();
     index.upsert("file:///a.ll", "define void @main() {\n  ret void\n}\n");
 
-    expect(index.prepare("file:///a.ll", { line: 0, character: 14 })).toEqual([
+    const items = index.prepare("file:///a.ll", { line: 0, character: 14 });
+    expect(items).toEqual([
       expect.objectContaining({
         name: "@main",
         kind: SymbolKind.Function,
         uri: "file:///a.ll",
       }),
     ]);
+    expect(index.outgoing(items[0]!)).toEqual([]);
     expect(callHierarchyProviderCapability).toBe(true);
   });
 
@@ -75,6 +77,8 @@ describe("CallHierarchyIndex", () => {
         fromRanges: [expect.anything(), expect.anything()],
       }),
     ]);
+    index.delete("file:///caller.ll");
+    expect(index.incoming(callee)).toEqual([]);
   });
 
   it("更新と削除で古い呼び出し関係を破棄する", () => {

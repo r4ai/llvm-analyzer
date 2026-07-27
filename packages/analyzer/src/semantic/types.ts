@@ -103,6 +103,14 @@ export interface SemanticSymbol {
   readonly type?: string;
 }
 
+/** ソース上の一つの識別子出現と、解決先シンボルの組。 */
+export interface SemanticOccurrence {
+  /** 出現した定義または参照。 */
+  readonly ref: IdentifierRef;
+  /** 出現が解決されたシンボル。 */
+  readonly symbol: SemanticSymbol;
+}
+
 /** analyzer が出す診断コード。 */
 export type AnalyzerDiagnosticCode =
   | "duplicate-definition"
@@ -205,6 +213,25 @@ export interface SemanticModel {
   /** 解析で見つかった全シンボル。登録順はソース上の定義順。 */
   readonly symbols: readonly SemanticSymbol[];
   /**
+   * 指定位置にある識別子出現と解決先を返す。
+   *
+   * @param position 照会するソース位置。
+   * @returns 解決済み識別子上なら出現とシンボルの組。識別子外または未定義参照なら undefined。
+   *
+   * @remarks
+   * ソース順の出現索引を二分探索するため、文書内の出現数を `n` とすると `O(log n)` 時間で返す。
+   */
+  occurrenceAt(position: Position): SemanticOccurrence | undefined;
+  /**
+   * 解決済みの全識別子出現をソース順で返す。
+   *
+   * @returns 定義と参照を含む出現列。
+   *
+   * @remarks
+   * 返却配列の構築は出現数に対して線形時間であり、再整列は行わない。
+   */
+  occurrences(): readonly SemanticOccurrence[];
+  /**
    * 指定位置にある識別子へ解決済みのシンボルを返す。
    *
    * @param position 照会するソース位置。offset/line/column は parser と同じ 0 始まり。
@@ -236,6 +263,23 @@ export interface SemanticModel {
    * 未知の ID では空配列を返す。
    */
   referencesOf(symbolId: SymbolId): readonly IdentifierRef[];
+  /**
+   * 指定範囲内で定義が終わるシンボルをソース順で返す。
+   *
+   * @param range 照会する半開区間。終端と一致する定義は含む。
+   * @returns 範囲内のシンボル列。
+   *
+   * @remarks
+   * 定義位置索引の境界を二分探索し、範囲内の結果だけを走査する。
+   */
+  symbolsInRange(range: Range): readonly SemanticSymbol[];
+  /**
+   * 指定位置から参照できるシンボルを返す。
+   *
+   * @param position モジュールまたは関数内の照会位置。
+   * @returns モジュールスコープと、関数内ならその関数スコープのシンボル列。
+   */
+  visibleSymbolsAt(position: Position): readonly SemanticSymbol[];
   /**
    * ドキュメントアウトライン向けの階層シンボルを返す。
    *

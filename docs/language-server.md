@@ -71,6 +71,8 @@ verifier の実行中プロセスは `AbortController` で中止します。
 
 snapshot は LSP 応答の基準です。
 位置変換、range 変換、シンボル検索、診断変換は snapshot 内の `TextDocument` と semantic model だけを見ます。
+snapshot作成時に行位置表と安全な置換候補索引を準備します。
+同じsnapshotから導出したDocument Symbols、Semantic Tokens、Folding Ranges、Document Link候補は再利用し、文書バージョンの置換を失効境界にします。
 
 ## LSP 機能の対応
 
@@ -88,8 +90,9 @@ snapshot は LSP 応答の基準です。
 | inlayHint           | SSA 値の推定型                           | 型 hint。                     |
 | documentLink        | ファイル参照候補、実在ファイル           | `DocumentLink[]`。            |
 | formatting          | `formatLlvmIr`                           | 全体置換 edit。               |
-| rangeFormatting     | `formatLlvmIr`                           | 選択範囲と交差する行の edit。 |
+| rangeFormatting     | 現在関数の範囲、選択行の断片             | 選択範囲と交差する行の edit。 |
 | codeAction          | stable diagnostic code                   | 安全な quick fix。            |
+| CFG command         | 関数範囲索引、独自LSP request            | Mermaidテキスト。             |
 
 単一ドキュメント機能は `packages/language-server/src/lsp/features.ts` に集約します。
 workspace 横断機能は専用索引に分けます。
@@ -219,15 +222,31 @@ server は定義位置を `Location` として返します。
 
 ## workspace 索引
 
-| 索引                   | 対象                                                                         | 更新条件                                        |
-| ---------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------- |
-| `WorkspaceSymbolIndex` | モジュールスコープの関数、グローバル、型、メタデータ、属性グループ、comdat。 | 起動時走査、open document、watched file event。 |
-| `CallHierarchyIndex`   | 直接呼び出しの caller と callee。                                            | 起動時走査、open document、watched file event。 |
+| 索引                   | 対象                                                                                         | 更新条件                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `WorkspaceSymbolIndex` | モジュールスコープの関数、グローバル、型、メタデータ、属性グループ、comdatの名前三文字索引。 | 起動時走査、open document、watched file event。 |
+| `CallHierarchyIndex`   | 直接呼び出しのcaller別索引とcallee別索引。                                                   | 起動時走査、open document、watched file event。 |
 
 open document はディスク上のファイルより優先します。
 開いている `.ll` ファイルはエディタ上の内容で索引します。
 閉じた `.ll` ファイルはディスク内容へ戻します。
 削除された `.ll` ファイルは索引から消します。
+3文字以上のWorkspace Symbol queryは三文字索引で候補を絞り、部分一致契約を保ったまま無関係なシンボルを走査しません。
+3文字未満のqueryは候補を安全に絞れないため、全シンボルを対象にします。
+
+## 操作性能の契約
+
+| 操作                                              | 計算量                                                                 |
+| ------------------------------------------------- | ---------------------------------------------------------------------- |
+| Definition、Hover、現在関数のCFG                  | 解決済み出現数または関数数に対して`O(log n)`。                         |
+| 表示範囲Inlay Hints                               | 定義境界の探索`O(log n)`と範囲内結果数に比例。                         |
+| References、Rename                                | 対象シンボルの参照数に比例し、再整列しない。                           |
+| Document Symbols、Semantic Tokens、Folding Ranges | 初回は返却件数に比例し、同じsnapshotの再要求では導出結果を再利用する。 |
+| Range Formatting                                  | 選択行数に比例し、文書全体を整形しない。                               |
+| Workspace Symbols、Call Hierarchy                 | 登録時に索引化し、問い合わせでは索引候補と返却件数を処理する。         |
+
+初回解析と索引準備を含む操作別の待ち時間は`pnpm benchmark:large-ir -- --check`で検査します。
+結果件数が一定の対話操作は20 ms、全件操作の初回生成は100 msを上限にします。
 
 ## 設定
 

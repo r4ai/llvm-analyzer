@@ -47,9 +47,14 @@ describe("WorkspaceSymbolIndex", () => {
   it("query に一致する symbol だけを大文字小文字を無視して返す", () => {
     const index = new WorkspaceSymbolIndex();
     index.upsert("file:///a.ll", "@global_counter = global i32 0\n");
-    index.upsert("file:///b.ll", "define void @main() {\n  ret void\n}\n");
+    index.upsert(
+      "file:///b.ll",
+      ["@global_value = global i32 0", "define void @main() {", "  ret void", "}"].join("\n"),
+    );
 
     expect(index.search("COUNTER").map((symbol) => symbol.name)).toEqual(["@global_counter"]);
+    index.delete("file:///a.ll");
+    expect(index.search("global").map((symbol) => symbol.name)).toEqual(["@global_value"]);
   });
 
   it("ファイル変更時は古い索引を置き換え、削除時は破棄する", () => {

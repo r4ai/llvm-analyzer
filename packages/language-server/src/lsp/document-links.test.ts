@@ -31,6 +31,12 @@ describe("getDocumentLinks", () => {
         tooltip: "src/main.c",
       },
     ]);
+    await expect(
+      getDocumentLinks(snapshot, {
+        workspaceFolderUris: ["file:///workspace"],
+        fileExists: async (filePath) => filePath === "/workspace/src/main.c",
+      }),
+    ).resolves.toEqual(links);
   });
 
   it("存在しないファイル候補はリンク化しない", async () => {

@@ -16,6 +16,7 @@ import { DocumentChangeJournal } from "./lsp/document-change-journal.ts";
 import { getDocumentLinks } from "./lsp/document-links.ts";
 import {
   getCompletionItems,
+  getControlFlowGraph,
   getCodeActions,
   getDefinition,
   getDiagnostics,
@@ -35,6 +36,7 @@ import {
   normalizeInlayHintSettings,
   type InlayHintSettings,
 } from "./lsp/features.ts";
+import { CONTROL_FLOW_GRAPH_REQUEST, isControlFlowGraphRequestParams } from "./lsp/protocol.ts";
 import {
   defaultDiagnosticSettings,
   mergeVerifierDiagnostics,
@@ -163,6 +165,12 @@ connection.languages.callHierarchy.onOutgoingCalls((params) => callHierarchy.out
 connection.onCompletion((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
   return snapshot ? getCompletionItems(snapshot, params.position) : [];
+});
+
+connection.onRequest(CONTROL_FLOW_GRAPH_REQUEST, (params: unknown): string | null => {
+  if (!isControlFlowGraphRequestParams(params)) return null;
+  const snapshot = snapshotFor(params.textDocument.uri);
+  return snapshot ? (getControlFlowGraph(snapshot, params.position) ?? null) : null;
 });
 
 connection.onCodeAction((params) => {

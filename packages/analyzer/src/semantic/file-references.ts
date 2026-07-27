@@ -29,28 +29,11 @@ export const collectFileReferenceCandidates = (
   ast: Module,
   source: string,
 ): FileReferenceCandidate[] => {
-  const tokens = tokenize(source).filter((token) => token.kind !== "Eof");
   const candidates: FileReferenceCandidate[] = [];
-  let tokenIndex = 0;
 
   for (const entry of ast.entries) {
-    while (
-      tokenIndex < tokens.length &&
-      tokens[tokenIndex]!.range.start.offset < entry.range.start.offset
-    ) {
-      tokenIndex += 1;
-    }
-    let entryEnd = tokenIndex;
-    while (
-      entryEnd < tokens.length &&
-      tokens[entryEnd]!.range.end.offset <= entry.range.end.offset
-    ) {
-      entryEnd += 1;
-    }
-    const entryTokens = tokens.slice(tokenIndex, entryEnd);
-    tokenIndex = entryEnd;
-
     if (entry.kind === "SourceFilename") {
+      const entryTokens = tokensInRange(source, entry.range);
       const filename = entryTokens.find((token) => token.kind === "String");
       if (!filename) continue;
       const path = decodeLlvmString(filename.value);
@@ -63,7 +46,9 @@ export const collectFileReferenceCandidates = (
       continue;
     }
 
-    if (entry.kind !== "MetadataDefinition" || !hasDiFileTag(entryTokens)) continue;
+    if (entry.kind !== "MetadataDefinition") continue;
+    const entryTokens = tokensInRange(source, entry.range);
+    if (!hasDiFileTag(entryTokens)) continue;
     const filename = namedString(entryTokens, "filename");
     if (!filename) continue;
     const directory = namedString(entryTokens, "directory");
@@ -79,6 +64,27 @@ export const collectFileReferenceCandidates = (
 
   return candidates;
 };
+
+const tokensInRange = (source: string, range: Range): Token[] =>
+  tokenize(source.slice(range.start.offset, range.end.offset))
+    .filter((token) => token.kind !== "Eof")
+    .map((token) => ({
+      kind: token.kind,
+      value: token.value,
+      range: {
+        start: shiftPosition(token.range.start, range.start),
+        end: shiftPosition(token.range.end, range.start),
+      },
+    }));
+
+const shiftPosition = (
+  position: Token["range"]["start"],
+  base: Range["start"],
+): Token["range"]["start"] => ({
+  offset: base.offset + position.offset,
+  line: base.line + position.line,
+  column: position.line === 0 ? base.column + position.column : position.column,
+});
 
 const hasDiFileTag = (tokens: readonly Token[]): boolean =>
   tokens.some((token) => token.value === "!DIFile");

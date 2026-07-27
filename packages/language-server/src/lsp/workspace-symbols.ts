@@ -35,8 +35,10 @@ export const workspaceSymbolProviderCapability = true;
  * 古いシンボルが残らないようにする。
  */
 export class WorkspaceSymbolIndex {
-  private readonly snapshots = new Map<string, DocumentSnapshot>();
+  private readonly symbolsByUri = new Map<string, readonly IndexedWorkspaceSymbol[]>();
+  private readonly symbolsByTrigram = new Map<string, Set<IndexedWorkspaceSymbol>>();
   private readonly openUris = new Set<string>();
+  private sortedSymbols: readonly IndexedWorkspaceSymbol[] | undefined;
 
   /**
    * ファイル内容を解析して索引へ登録する。
@@ -124,7 +126,17 @@ export class WorkspaceSymbolIndex {
    * @param snapshot 登録するドキュメント snapshot。
    */
   upsertSnapshot(snapshot: DocumentSnapshot): void {
-    this.snapshots.set(snapshot.uri, snapshot);
+    this.removeSymbols(snapshot.uri);
+    const symbols = workspaceSymbolsOf(snapshot).map(indexWorkspaceSymbol);
+    this.symbolsByUri.set(snapshot.uri, symbols);
+    for (const symbol of symbols) {
+      for (const trigram of symbol.trigrams) {
+        const matches = this.symbolsByTrigram.get(trigram);
+        if (matches) matches.add(symbol);
+        else this.symbolsByTrigram.set(trigram, new Set([symbol]));
+      }
+    }
+    this.sortedSymbols = undefined;
   }
 
   /**
@@ -134,7 +146,7 @@ export class WorkspaceSymbolIndex {
    */
   delete(uri: string): void {
     this.openUris.delete(uri);
-    this.snapshots.delete(uri);
+    this.removeSymbols(uri);
   }
 
   /**
@@ -145,12 +157,64 @@ export class WorkspaceSymbolIndex {
    */
   search(query: string): SymbolInformation[] {
     const normalizedQuery = query.toLocaleLowerCase();
-    return [...this.snapshots.values()]
-      .flatMap((snapshot) => workspaceSymbolsOf(snapshot))
-      .filter((symbol) => symbol.name.toLocaleLowerCase().includes(normalizedQuery))
-      .toSorted((a, b) => compareSymbolInformation(a, b));
+    return this.candidatesFor(normalizedQuery)
+      .filter((symbol) => symbol.normalizedName.includes(normalizedQuery))
+      .map((symbol) => symbol.information)
+      .toSorted(compareSymbolInformation);
+  }
+
+  private candidatesFor(query: string): readonly IndexedWorkspaceSymbol[] {
+    if (query.length < 3) return this.allSymbols();
+    const trigrams = trigramsOf(query);
+    const candidateSets = trigrams
+      .map((trigram) => this.symbolsByTrigram.get(trigram))
+      .filter((symbols): symbols is Set<IndexedWorkspaceSymbol> => symbols !== undefined)
+      .toSorted((left, right) => left.size - right.size);
+    if (candidateSets.length !== trigrams.length) return [];
+    return [...candidateSets[0]!];
+  }
+
+  private allSymbols(): readonly IndexedWorkspaceSymbol[] {
+    this.sortedSymbols ??= [...this.symbolsByUri.values()]
+      .flat()
+      .toSorted((left, right) => compareSymbolInformation(left.information, right.information));
+    return this.sortedSymbols;
+  }
+
+  private removeSymbols(uri: string): void {
+    const previous = this.symbolsByUri.get(uri);
+    if (!previous) return;
+    for (const symbol of previous) {
+      for (const trigram of symbol.trigrams) {
+        const matches = this.symbolsByTrigram.get(trigram)!;
+        matches.delete(symbol);
+        if (matches.size === 0) this.symbolsByTrigram.delete(trigram);
+      }
+    }
+    this.symbolsByUri.delete(uri);
+    this.sortedSymbols = undefined;
   }
 }
+
+interface IndexedWorkspaceSymbol {
+  readonly information: SymbolInformation;
+  readonly normalizedName: string;
+  readonly trigrams: readonly string[];
+}
+
+const indexWorkspaceSymbol = (information: SymbolInformation): IndexedWorkspaceSymbol => {
+  const normalizedName = information.name.toLocaleLowerCase();
+  return { information, normalizedName, trigrams: trigramsOf(normalizedName) };
+};
+
+const trigramsOf = (value: string): string[] => {
+  if (value.length < 3) return [];
+  return [
+    ...new Set(
+      Array.from({ length: value.length - 2 }, (_, index) => value.slice(index, index + 3)),
+    ),
+  ];
+};
 
 const workspaceSymbolsOf = (snapshot: DocumentSnapshot): SymbolInformation[] =>
   snapshot.model.symbols

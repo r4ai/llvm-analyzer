@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseModule } from "../parser/index.ts";
-import { formatLlvmIr } from "./formatter.ts";
+import { formatLlvmIr, formatLlvmIrFragment } from "./formatter.ts";
 
 describe("formatLlvmIr", () => {
   it("トップレベル行を左詰めし、関数内の命令だけを2スペース字下げする", () => {
@@ -48,6 +48,20 @@ describe("formatLlvmIr", () => {
 
     expect(formatLlvmIr(source)).toBe(
       ["define void @f() { ; comment", "entry:", "  ret void", "}"].join("\n"),
+    );
+  });
+
+  it("関数本体の途中から切り出した断片だけを整形する", () => {
+    const source = [
+      "%value = add i32 1, 2",
+      "exit:",
+      "ret i32 %value",
+      "}",
+      "@g = global i32 0",
+    ].join("\n");
+
+    expect(formatLlvmIrFragment(source, true)).toBe(
+      ["  %value = add i32 1, 2", "exit:", "  ret i32 %value", "}", "@g = global i32 0"].join("\n"),
     );
   });
 });

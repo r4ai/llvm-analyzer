@@ -1,6 +1,7 @@
 import {
   analyze,
   attributeDocs,
+  formatControlFlowGraphAsMermaid,
   opcodeDocs,
   typeDocs,
   type SemanticSymbol,
@@ -8,6 +9,7 @@ import {
 } from "@llvm-analyzer/analyzer";
 import {
   formatLlvmIr,
+  formatLlvmIrFragment,
   IncrementalParserSession,
   tokenize,
   type ParseDiagnostic,
@@ -132,6 +134,16 @@ const KEYWORD_COMPLETIONS = [
   "uselistorder_bb",
 ];
 
+interface ReplacementNameIndex {
+  readonly moduleNamesByLength: ReadonlyMap<number, readonly string[]>;
+  readonly labelNamesByScopeAndLength: ReadonlyMap<string, ReadonlyMap<number, readonly string[]>>;
+}
+
+const replacementNamesBySnapshot = new WeakMap<DocumentSnapshot, ReplacementNameIndex>();
+const documentSymbolsBySnapshot = new WeakMap<DocumentSnapshot, DocumentSymbol[]>();
+const semanticTokensBySnapshot = new WeakMap<DocumentSnapshot, SemanticTokens>();
+const foldingRangesBySnapshot = new WeakMap<DocumentSnapshot, FoldingRange[]>();
+
 export interface DocumentSnapshot {
   readonly uri: string;
   readonly version: number;
@@ -188,7 +200,7 @@ export const makeDocumentSnapshot = (uri: string, text: string, version = 1): Do
   const parser = IncrementalParserSession.create(text);
   const parse = parser.result;
   const model = analyze(parse.ast, { source: text });
-  return { uri, version, text, document, parser, parse, model };
+  return createSnapshot({ uri, version, text, document, parser, parse, model });
 };
 
 /**
@@ -216,7 +228,21 @@ export const updateDocumentSnapshot = (
     : previous.parser.updateFromSource(text);
   const parse = parser.result;
   const model = analyze(parse.ast, { source: text });
-  return { uri: previous.uri, version, text, document, parser, parse, model };
+  return createSnapshot({
+    uri: previous.uri,
+    version,
+    text,
+    document,
+    parser,
+    parse,
+    model,
+  });
+};
+
+const createSnapshot = (snapshot: DocumentSnapshot): DocumentSnapshot => {
+  snapshot.document.positionAt(snapshot.text.length);
+  replacementNameIndex(snapshot);
+  return snapshot;
 };
 
 const applyContentChanges = (
@@ -322,8 +348,10 @@ export const getReferences = (
 };
 
 /** documentSymbol 用の階層シンボルを返す。 */
-export const getDocumentSymbols = (snapshot: DocumentSnapshot): DocumentSymbol[] =>
-  snapshot.model.documentSymbols().map((symbol) => ({
+export const getDocumentSymbols = (snapshot: DocumentSnapshot): DocumentSymbol[] => {
+  const cached = documentSymbolsBySnapshot.get(snapshot);
+  if (cached) return cached;
+  const symbols = snapshot.model.documentSymbols().map((symbol) => ({
     name: symbol.name,
     kind: LSP_SYMBOL_KINDS[symbol.kind],
     range: toLspRange(symbol.range),
@@ -335,6 +363,9 @@ export const getDocumentSymbols = (snapshot: DocumentSnapshot): DocumentSymbol[]
       selectionRange: toLspRange(child.selectionRange),
     })),
   }));
+  documentSymbolsBySnapshot.set(snapshot, symbols);
+  return symbols;
+};
 
 /** 構文診断と意味診断を LSP 診断へ変換し、診断設定を適用する。 */
 export const getDiagnostics = (
@@ -397,34 +428,33 @@ export const getRenameEdit = (
 
 /** semanticTokens を返す。シンボル出現を delta encoding する。 */
 export const getSemanticTokens = (snapshot: DocumentSnapshot): SemanticTokens => {
-  const refs = snapshot.model.symbols
-    .flatMap((symbol) =>
-      snapshot.model.referencesOf(symbol.id).map((ref) => ({
-        ref,
-        symbol,
-        isDefinition: sameRange(ref.range, symbol.definition.range),
-      })),
-    )
-    .toSorted((a, b) => a.ref.range.start.offset - b.ref.range.start.offset);
+  const cached = semanticTokensBySnapshot.get(snapshot);
+  if (cached) return cached;
   let prevLine = 0;
   let prevChar = 0;
   const data: number[] = [];
-  for (const item of refs) {
-    const start = item.ref.range.start;
+  for (const { ref, symbol } of snapshot.model.occurrences()) {
+    const start = ref.range.start;
     const lineDelta = start.line - prevLine;
     const charDelta = lineDelta === 0 ? start.column - prevChar : start.column;
-    const tokenType = TOKEN_TYPE_INDEX.get(SEMANTIC_TOKEN_TYPES[item.symbol.kind])!;
-    const modifiers = item.isDefinition ? 1 << TOKEN_MODIFIER_INDEX.get("definition")! : 0;
-    data.push(lineDelta, charDelta, item.ref.range.end.column - start.column, tokenType, modifiers);
+    const tokenType = TOKEN_TYPE_INDEX.get(SEMANTIC_TOKEN_TYPES[symbol.kind])!;
+    const modifiers = sameRange(ref.range, symbol.definition.range)
+      ? 1 << TOKEN_MODIFIER_INDEX.get("definition")!
+      : 0;
+    data.push(lineDelta, charDelta, ref.range.end.column - start.column, tokenType, modifiers);
     prevLine = start.line;
     prevChar = start.column;
   }
-  return { data, resultId: snapshot.version.toString() };
+  const tokens = { data, resultId: snapshot.version.toString() };
+  semanticTokensBySnapshot.set(snapshot, tokens);
+  return tokens;
 };
 
 /** 関数定義ブロックの foldingRange を返す。 */
-export const getFoldingRanges = (snapshot: DocumentSnapshot): FoldingRange[] =>
-  snapshot.parse.ast.entries
+export const getFoldingRanges = (snapshot: DocumentSnapshot): FoldingRange[] => {
+  const cached = foldingRangesBySnapshot.get(snapshot);
+  if (cached) return cached;
+  const ranges = snapshot.parse.ast.entries
     .filter((entry) => entry.kind === "FunctionDefinition")
     .map((entry) => ({
       startLine: entry.range.start.line,
@@ -432,6 +462,24 @@ export const getFoldingRanges = (snapshot: DocumentSnapshot): FoldingRange[] =>
       endLine: entry.range.end.line,
       endCharacter: entry.range.end.column,
     }));
+  foldingRangesBySnapshot.set(snapshot, ranges);
+  return ranges;
+};
+
+/**
+ * 指定位置を含む関数のCFGをMermaidとして返す。
+ *
+ * @param snapshot 解析済みの不変スナップショット。
+ * @param position 関数内のLSP位置。
+ * @returns 関数内ならMermaidテキスト。関数外ならundefined。
+ */
+export const getControlFlowGraph = (
+  snapshot: DocumentSnapshot,
+  position: LspPosition,
+): string | undefined => {
+  const graph = snapshot.model.controlFlowGraphAt(toParserPosition(snapshot, position));
+  return graph ? formatControlFlowGraphAsMermaid(graph) : undefined;
+};
 
 /** SSA値の推定型を inlay hint として返す。 */
 export const getInlayHints = (
@@ -440,9 +488,14 @@ export const getInlayHints = (
   settings: InlayHintSettings = defaultInlayHintSettings,
 ): InlayHint[] => {
   if (!settings.types.enabled) return [];
-  return snapshot.model.symbols
+  const symbols = range
+    ? snapshot.model.symbolsInRange({
+        start: toParserPosition(snapshot, range.start),
+        end: toParserPosition(snapshot, range.end),
+      })
+    : snapshot.model.symbols;
+  return symbols
     .filter((symbol) => symbol.kind === "parameter" || symbol.kind === "local")
-    .filter((symbol) => !range || positionInRange(symbol.definition.range.end, range))
     .flatMap((symbol) => {
       const type = symbol.type;
       return type
@@ -480,26 +533,29 @@ export const getRangeFormattingEdits = (
   snapshot: DocumentSnapshot,
   range: LspRange,
 ): TextEdit[] => {
-  const lines = snapshot.text.split("\n");
-  const formattedLines = formatLlvmIr(snapshot.text).split("\n");
-  const startLine = clamp(range.start.line, 0, Math.max(lines.length - 1, 0));
+  const startLine = clamp(range.start.line, 0, Math.max(snapshot.document.lineCount - 1, 0));
   const endLineExclusive = clamp(
     range.end.character === 0 ? range.end.line : range.end.line + 1,
     startLine,
-    lines.length,
+    snapshot.document.lineCount,
   );
-  const originalText = replacementText(lines, startLine, endLineExclusive);
-  const newText = replacementText(formattedLines, startLine, endLineExclusive);
+  const editRange = {
+    start: { line: startLine, character: 0 },
+    end:
+      endLineExclusive < snapshot.document.lineCount
+        ? { line: endLineExclusive, character: 0 }
+        : snapshot.document.positionAt(snapshot.text.length),
+  };
+  const originalText = snapshot.document.getText(editRange);
+  const graph = snapshot.model.controlFlowGraphAt(toParserPosition(snapshot, editRange.start));
+  const newText = formatLlvmIrFragment(
+    originalText,
+    graph !== undefined && graph.range.start.line < startLine,
+  );
   if (originalText === newText) return [];
   return [
     {
-      range: {
-        start: { line: startLine, character: 0 },
-        end:
-          endLineExclusive < lines.length
-            ? { line: endLineExclusive, character: 0 }
-            : snapshot.document.positionAt(snapshot.text.length),
-      },
+      range: editRange,
       newText,
     },
   ];
@@ -561,25 +617,27 @@ const closestReplacement = (
   current: string,
   range: LspRange,
 ): string | undefined => {
-  const candidates = replacementCandidates(snapshot, current, range).filter(
-    (candidate) => candidate !== current,
-  );
-  return candidates.toSorted((a, b) => editDistance(current, a) - editDistance(current, b))[0];
+  const threshold = Math.max(2, Math.floor(current.length / 3));
+  let closest: string | undefined;
+  let closestDistance = threshold + 1;
+  for (const candidate of replacementCandidates(snapshot, current, range, threshold)) {
+    const distance = editDistance(current, candidate);
+    if (distance >= closestDistance) continue;
+    closest = candidate;
+    closestDistance = distance;
+  }
+  return closest;
 };
 
 const replacementCandidates = (
   snapshot: DocumentSnapshot,
   current: string,
   range: LspRange,
+  threshold: number,
 ): string[] => {
+  const index = replacementNameIndex(snapshot);
   if (current.startsWith("@")) {
-    return snapshot.model.symbols
-      .filter(
-        (symbol) =>
-          symbol.scopeId === "module" && (symbol.kind === "function" || symbol.kind === "global"),
-      )
-      .map((symbol) => symbol.name)
-      .filter((name) => isCloseName(current, name));
+    return namesWithinLength(index.moduleNamesByLength, current.length, threshold);
   }
   if (current.startsWith("%")) {
     if (!isLabelReferenceContext(snapshot, range)) return [];
@@ -587,14 +645,58 @@ const replacementCandidates = (
       toParserPosition(snapshot, range.start),
     );
     if (!functionGraph) return [];
-    return snapshot.model.symbols
-      .filter(
-        (symbol) => symbol.kind === "label" && symbol.scopeName === functionGraph.functionName,
-      )
-      .map((symbol) => `%${symbol.name}`)
-      .filter((name) => isCloseName(current, name));
+    const names = index.labelNamesByScopeAndLength.get(functionGraph.functionName);
+    return names ? namesWithinLength(names, current.length, threshold) : [];
   }
   return [];
+};
+
+const replacementNameIndex = (snapshot: DocumentSnapshot): ReplacementNameIndex => {
+  const cached = replacementNamesBySnapshot.get(snapshot);
+  if (cached) return cached;
+  const moduleNamesByLength = new Map<number, string[]>();
+  const labelsByScope = new Map<string, Map<number, string[]>>();
+  for (const symbol of snapshot.model.symbols) {
+    if (symbol.scopeId === "module" && (symbol.kind === "function" || symbol.kind === "global")) {
+      addNameByLength(moduleNamesByLength, symbol.name);
+      continue;
+    }
+    if (symbol.kind !== "label") continue;
+    let names = labelsByScope.get(symbol.scopeName);
+    if (!names) {
+      names = new Map();
+      labelsByScope.set(symbol.scopeName, names);
+    }
+    addNameByLength(names, `%${symbol.name}`);
+  }
+  const index = {
+    moduleNamesByLength,
+    labelNamesByScopeAndLength: labelsByScope,
+  };
+  replacementNamesBySnapshot.set(snapshot, index);
+  return index;
+};
+
+const addNameByLength = (names: Map<number, string[]>, name: string): void => {
+  const sameLength = names.get(name.length);
+  if (sameLength) sameLength.push(name);
+  else names.set(name.length, [name]);
+};
+
+const namesWithinLength = (
+  names: ReadonlyMap<number, readonly string[]>,
+  length: number,
+  threshold: number,
+): string[] => {
+  const candidates: string[] = [];
+  for (
+    let candidateLength = Math.max(0, length - threshold);
+    candidateLength <= length + threshold;
+    candidateLength += 1
+  ) {
+    candidates.push(...(names.get(candidateLength) ?? []));
+  }
+  return candidates;
 };
 
 const isLabelReferenceContext = (snapshot: DocumentSnapshot, range: LspRange): boolean => {
@@ -603,9 +705,6 @@ const isLabelReferenceContext = (snapshot: DocumentSnapshot, range: LspRange): b
   const before = snapshot.text.slice(lineStart, offset).trimEnd();
   return /\blabel\s*$/u.test(before);
 };
-
-const isCloseName = (current: string, candidate: string): boolean =>
-  editDistance(current, candidate) <= Math.max(2, Math.floor(current.length / 3));
 
 const lineRange = (snapshot: DocumentSnapshot, line: number): LspRange => {
   const nextLineOffset = snapshot.document.offsetAt({ line: line + 1, character: 0 });
@@ -644,30 +743,12 @@ const editDistance = (left: string, right: string): number => {
   return previous[right.length]!;
 };
 
-const replacementText = (
-  lines: readonly string[],
-  startLine: number,
-  endLineExclusive: number,
-): string =>
-  `${lines.slice(startLine, endLineExclusive).join("\n")}${
-    endLineExclusive < lines.length ? "\n" : ""
-  }`;
-
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
 
-const positionInRange = (position: Range["end"], range: LspRange): boolean =>
-  comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;
-
-type ComparablePosition = { readonly line: number } & (
-  | { readonly character: number }
-  | { readonly column: number }
-);
-
-const comparePosition = (left: ComparablePosition, right: LspPosition): number => {
-  const leftCharacter = "character" in left ? left.character : left.column;
+const comparePosition = (left: LspPosition, right: LspPosition): number => {
   if (left.line !== right.line) return left.line - right.line;
-  return leftCharacter - right.character;
+  return left.character - right.character;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -686,12 +767,7 @@ const symbolOccurrenceAt = (
   | { readonly symbol: SemanticSymbol; readonly ref: SemanticSymbol["references"][number] }
   | undefined => {
   const parserPosition = toParserPosition(snapshot, position);
-  const symbol = snapshot.model.symbolAt(parserPosition);
-  if (!symbol) return undefined;
-  const ref = snapshot.model
-    .referencesOf(symbol.id)
-    .find((candidate) => containsRange(candidate.range, parserPosition))!;
-  return { symbol, ref };
+  return snapshot.model.occurrenceAt(parserPosition);
 };
 
 const symbolHoverMarkdown = (snapshot: DocumentSnapshot, symbol: SemanticSymbol): string => {
@@ -757,12 +833,7 @@ const completionSymbols = (
   snapshot: DocumentSnapshot,
   position: LspPosition,
 ): readonly SemanticSymbol[] => {
-  const graph = snapshot.model.controlFlowGraphAt(toParserPosition(snapshot, position));
-  return snapshot.model.symbols.filter(
-    (symbol) =>
-      symbol.scopeId === "module" ||
-      (graph !== undefined && symbol.scopeName === graph.functionName),
-  );
+  return snapshot.model.visibleSymbolsAt(toParserPosition(snapshot, position));
 };
 
 const toParserPosition = (snapshot: DocumentSnapshot, position: LspPosition) => ({
@@ -801,6 +872,3 @@ const stripLeadingSigil = (name: string): string => name.replace(/^[@%!#$]/u, ""
 
 const sameRange = (a: Range, b: Range): boolean =>
   a.start.offset === b.start.offset && a.end.offset === b.end.offset;
-
-const containsRange = (range: Range, position: { readonly offset: number }): boolean =>
-  position.offset >= range.start.offset && position.offset < range.end.offset;

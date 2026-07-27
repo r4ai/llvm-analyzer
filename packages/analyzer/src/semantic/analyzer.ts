@@ -777,27 +777,47 @@ const makeModel = (
 ): SemanticModel => {
   const symbols = mutableSymbols.map((symbol) => freezeSymbol(symbol));
   const byId = new Map(symbols.map((symbol) => [symbol.id, symbol]));
-  const mutableById = new Map(mutableSymbols.map((symbol) => [symbol.id, symbol]));
+  const symbolsByDefinition = occurrences.flatMap((occurrence) =>
+    sameRange(occurrence.ref.range, occurrence.symbol.definition.range)
+      ? [byId.get(occurrence.symbol.id)!]
+      : [],
+  );
+  const symbolsByScope = groupSymbolsByScope(symbols);
+  const documentSymbols = lazyValue(() => makeDocumentSymbols(entries, functionScopes));
+  const publicOccurrences = lazyValue(() =>
+    occurrences.map((occurrence) => ({
+      ref: occurrence.ref,
+      symbol: byId.get(occurrence.symbol.id)!,
+    })),
+  );
 
-  const mutableSymbolAt = (position: Position): MutableSymbol | undefined =>
-    occurrenceAt(occurrences, position)?.symbol;
+  const publicOccurrenceAt = (position: Position) => {
+    const occurrence = occurrenceAt(occurrences, position);
+    return occurrence
+      ? { ref: occurrence.ref, symbol: byId.get(occurrence.symbol.id)! }
+      : undefined;
+  };
+  const graphAt = (position: Position) => rangeEntryAt(controlFlowGraphs, position);
 
   return {
     symbols,
-    symbolAt: (position) => {
-      const symbol = mutableSymbolAt(position);
-      return symbol ? byId.get(symbol.id) : undefined;
+    occurrenceAt: publicOccurrenceAt,
+    occurrences: publicOccurrences,
+    symbolAt: (position) => publicOccurrenceAt(position)?.symbol,
+    definitionAt: (position) => publicOccurrenceAt(position)?.symbol,
+    referencesOf: (symbolId) => byId.get(symbolId)?.references ?? [],
+    symbolsInRange: (range) => symbolsWithin(symbolsByDefinition, range),
+    visibleSymbolsAt: (position) => {
+      const moduleSymbols = symbolsByScope.get(MODULE_SCOPE_ID) ?? [];
+      const graph = graphAt(position);
+      return graph
+        ? [...moduleSymbols, ...symbolsByScope.get(`function:${graph.functionName}`)!]
+        : moduleSymbols;
     },
-    definitionAt: (position) => {
-      const symbol = mutableSymbolAt(position);
-      return symbol ? byId.get(symbol.id) : undefined;
-    },
-    referencesOf: (symbolId) => mutableById.get(symbolId)?.references.toSorted(compareRefs) ?? [],
-    documentSymbols: () => makeDocumentSymbols(entries, functionScopes),
+    documentSymbols,
     directCalls: () => directCalls,
     controlFlowGraphs: () => controlFlowGraphs,
-    controlFlowGraphAt: (position) =>
-      controlFlowGraphs.find((graph) => contains(graph.range, position)),
+    controlFlowGraphAt: graphAt,
     diagnostics: () => diagnostics,
   };
 };
@@ -955,6 +975,58 @@ const occurrenceAt = (
     else low = middle + 1;
   }
   return undefined;
+};
+
+/** ソース順の範囲列から、指定位置を含む要素を二分探索する。 */
+const rangeEntryAt = <Entry extends { readonly range: Range }>(
+  entries: readonly Entry[],
+  position: Position,
+): Entry | undefined => {
+  let low = 0;
+  let high = entries.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const entry = entries[middle]!;
+    if (contains(entry.range, position)) return entry;
+    if (position.offset < entry.range.start.offset) high = middle - 1;
+    else low = middle + 1;
+  }
+  return undefined;
+};
+
+/** 定義終端が指定範囲に入るシンボル列を二分探索で切り出す。 */
+const symbolsWithin = (
+  symbols: readonly SemanticSymbol[],
+  range: Range,
+): readonly SemanticSymbol[] => {
+  const start = lowerBoundByDefinitionEnd(symbols, range.start.offset);
+  const end = lowerBoundByDefinitionEnd(symbols, range.end.offset + 1);
+  return symbols.slice(start, end);
+};
+
+/** シンボルをスコープ単位のソース順配列へまとめる。 */
+const groupSymbolsByScope = (
+  symbols: readonly SemanticSymbol[],
+): ReadonlyMap<string, readonly SemanticSymbol[]> => {
+  const groups = new Map<string, SemanticSymbol[]>();
+  for (const symbol of symbols) {
+    const group = groups.get(symbol.scopeId);
+    if (group) group.push(symbol);
+    else groups.set(symbol.scopeId, [symbol]);
+  }
+  return groups;
+};
+
+/** 定義終端offsetがtarget以上になる最初の位置を返す。 */
+const lowerBoundByDefinitionEnd = (symbols: readonly SemanticSymbol[], target: number): number => {
+  let low = 0;
+  let high = symbols.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (symbols[middle]!.definition.range.end.offset < target) low = middle + 1;
+    else high = middle;
+  }
+  return low;
 };
 
 /**
