@@ -1,5 +1,6 @@
 export {
   getCompletionItems,
+  getControlFlowGraph,
   getDefinition,
   getDiagnostics,
   getDocumentSymbols,
@@ -13,3 +14,4 @@ export {
   semanticTokenLegend,
 } from "./lsp/features.ts";
 export type { DocumentSnapshot } from "./lsp/features.ts";
+export { CONTROL_FLOW_GRAPH_REQUEST, type ControlFlowGraphRequestParams } from "./lsp/protocol.ts";

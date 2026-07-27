@@ -143,6 +143,12 @@
   - debounce中の複数変更をバージョン順に適用し、不整合時は全文解析へ戻すようにした
   - 初回`O(n)`、局所更新`O(log m + k + m)`、位置移動時`O(log m + k + m + a_s)`の契約を明記した
   - 横に広い不正命令で参照ごとにopcodeを再走査する二次時間経路を除いた
+- [x] **巨大LLVM IRのコードジャンプと操作性能**（2026-07-27）
+  - Definition、Hover、表示範囲Inlay Hints、Range Formatting、CFGを位置と範囲の索引へ接続した
+  - References、Rename、Semantic Tokensで整列済みの出現列を再利用し、操作ごとの再整列を除いた
+  - Workspace Symbols、Call Hierarchy、Code Action、Document Linksに問い合わせ用索引とsnapshot単位の再利用を追加した
+  - CFG commandをLanguage Serverの解析済みsnapshotへ接続し、拡張ホストでの全文再解析を除いた
+  - 主要LSP操作の初回時間、再要求時間、入力4倍時の増加率を巨大IRベンチマークで検査するようにした
 
 ## メモ
 

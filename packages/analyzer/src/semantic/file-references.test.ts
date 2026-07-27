@@ -46,6 +46,23 @@ describe("collectFileReferenceCandidates", () => {
     });
   });
 
+  it("複数行DIFileの文字列範囲を文書全体の位置へ変換する", () => {
+    const source = [
+      "!0 = !DIFile(",
+      '  filename: "main.c",',
+      '  directory: "/workspace/src"',
+      ")",
+    ].join("\n");
+
+    expect(collectFileReferenceCandidates(parseModule(source).ast, source)[0]).toMatchObject({
+      path: "/workspace/src/main.c",
+      range: {
+        start: { line: 1, column: 13 },
+        end: { line: 1, column: 19 },
+      },
+    });
+  });
+
   it("LLVM IR 文字列の 16 進エスケープを復号する", () => {
     const source = [
       'source_filename = "src\\2Fmain\\20file.c"',

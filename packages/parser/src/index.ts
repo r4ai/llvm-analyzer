@@ -7,7 +7,7 @@ export {
   type IncrementalParseEdit,
   type ParseUpdateStrategy,
 } from "./parser/index.ts";
-export { formatLlvmIr } from "./formatter/index.ts";
+export { formatLlvmIr, formatLlvmIrFragment } from "./formatter/index.ts";
 export { formatLlvmType, parseLlvmType } from "./type/index.ts";
 export type {
   ArrayType,

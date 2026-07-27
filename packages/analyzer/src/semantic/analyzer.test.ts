@@ -161,6 +161,68 @@ describe("analyze: 定義参照インデックス", () => {
     ]);
   });
 
+  it("位置・範囲・可視スコープの索引を同じ意味モデルから返す", () => {
+    const source = [
+      "@global = global i32 0",
+      "define i32 @first(i32 %input) {",
+      "entry:",
+      "  %value = add i32 %input, 1",
+      "  ret i32 %value",
+      "}",
+      "define i32 @second() {",
+      "entry:",
+      "  %result = load i32, ptr @global",
+      "  ret i32 %result",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+    const resultPosition = posOf(source, "%result", 1);
+    const resultSymbol = model.symbolAt(resultPosition)!;
+    const occurrence = model.occurrenceAt(resultPosition);
+
+    expect(occurrence).toMatchObject({
+      ref: { name: "%result" },
+      symbol: { id: resultSymbol.id },
+    });
+    expect(model.referencesOf(resultSymbol.id)).toBe(resultSymbol.references);
+    expect(model.occurrences().map(({ ref }) => ref.range.start.offset)).toEqual(
+      model
+        .occurrences()
+        .map(({ ref }) => ref.range.start.offset)
+        .toSorted((left, right) => left - right),
+    );
+
+    const secondStart = posOf(source, "define i32 @second");
+    const secondEnd = posOf(source, "}", 1);
+    const secondRange = {
+      start: secondStart,
+      end: { ...secondEnd, offset: secondEnd.offset + 1, column: secondEnd.column + 1 },
+    };
+    expect(model.symbolsInRange(secondRange).map((symbol) => symbol.name)).toEqual([
+      "@second",
+      "entry",
+      "%result",
+    ]);
+    expect(model.visibleSymbolsAt(resultPosition).map((symbol) => symbol.name)).toEqual([
+      "@global",
+      "@first",
+      "@second",
+      "entry",
+      "%result",
+    ]);
+    expect(model.occurrenceAt(posOf(source, "load"))).toBeUndefined();
+  });
+
+  it("定義がないモジュールの可視シンボルは空配列にする", () => {
+    expect(
+      modelOf("; no definitions").visibleSymbolsAt({
+        offset: 0,
+        line: 0,
+        column: 0,
+      }),
+    ).toEqual([]);
+  });
+
   it("同じグローバルへの大量参照を欠落や重複なしで索引化する", () => {
     const referenceCount = 4_096;
     const source = [

@@ -1,11 +1,23 @@
 import { analyze, collectFileReferenceCandidates } from "../packages/analyzer/src/index.ts";
 import {
+  getCodeActions,
+  getCompletionItems,
+  getControlFlowGraph,
   getDefinition,
+  getDocumentSymbols,
+  getFoldingRanges,
+  getFormattingEdits,
+  getHover,
+  getRangeFormattingEdits,
+  getReferences,
+  getRenameEdit,
+  getSemanticTokens,
   makeDocumentSnapshot,
   updateDocumentSnapshot,
-} from "../packages/language-server/src/index.ts";
+} from "../packages/language-server/src/lsp/features.ts";
 import { CallHierarchyIndex } from "../packages/language-server/src/lsp/call-hierarchy.ts";
-import { getInlayHints } from "../packages/language-server/src/lsp/features.ts";
+import { getDocumentLinks } from "../packages/language-server/src/lsp/document-links.ts";
+import { getDiagnostics, getInlayHints } from "../packages/language-server/src/lsp/features.ts";
 import { WorkspaceSymbolIndex } from "../packages/language-server/src/lsp/workspace-symbols.ts";
 import { parseModule } from "../packages/parser/src/index.ts";
 import { measureMedianDuration } from "./stable-benchmark.mts";
@@ -13,6 +25,10 @@ import { measureMedianDuration } from "./stable-benchmark.mts";
 const SIZE_FACTOR = 4;
 const RECOVERY_SIZE_FACTOR = 16;
 const MAX_NORMALIZED_GROWTH = 2;
+const MAX_POINT_QUERY_GROWTH = 2;
+const MAX_INTERACTIVE_ACTION_MS = 20;
+const MAX_COLD_FULL_ACTION_MS = 100;
+const MIN_OUTPUT_GROWTH_BASELINE_MS = 10;
 const MIN_INCREMENTAL_SPEEDUP = 1.2;
 const MIN_SHARING_SPEEDUP = 1.5;
 const SAMPLES = 5;
@@ -81,7 +97,9 @@ if (process.argv.includes("--check") && recoveryNormalizedGrowth > MAX_NORMALIZE
 const fileReferenceSmall = benchmarkFileReferences(makeManyFunctions(400, 1));
 const fileReferenceLarge = benchmarkFileReferences(makeManyFunctions(400 * SIZE_FACTOR, 1));
 const fileReferenceNormalizedGrowth =
-  fileReferenceLarge.fileReferencesMs / fileReferenceSmall.fileReferencesMs / SIZE_FACTOR;
+  fileReferenceLarge.fileReferencesMs /
+  Math.max(fileReferenceSmall.fileReferencesMs, 0.01) /
+  SIZE_FACTOR;
 console.log(
   JSON.stringify({
     scenario: "file-references",
@@ -162,6 +180,77 @@ if (process.argv.includes("--check") && fanoutNormalizedGrowth > MAX_NORMALIZED_
 if (process.argv.includes("--check") && sharingSpeedup < MIN_SHARING_SPEEDUP) {
   console.error(
     `open-document-index-fanout: 解析済みスナップショット共有の高速化率が ${round(sharingSpeedup)} 倍に留まりました`,
+  );
+  failed = true;
+}
+
+const actionSmall = await benchmarkLanguageActions(400);
+const actionLarge = await benchmarkLanguageActions(400 * SIZE_FACTOR);
+const pointActionGrowth = Object.fromEntries(
+  actionSmall.pointActions.map((smallAction) => {
+    const largeAction = actionLarge.pointActions.find(
+      (candidate) => candidate.name === smallAction.name,
+    );
+    return [smallAction.name, largeAction.coldMs / Math.max(smallAction.coldMs, 0.1)];
+  }),
+);
+const outputActionGrowth = Object.fromEntries(
+  actionSmall.outputActions.map((smallAction) => {
+    const largeAction = actionLarge.outputActions.find(
+      (candidate) => candidate.name === smallAction.name,
+    );
+    return [
+      smallAction.name,
+      largeAction.coldMs /
+        Math.max(smallAction.coldMs, MIN_OUTPUT_GROWTH_BASELINE_MS) /
+        SIZE_FACTOR,
+    ];
+  }),
+);
+console.log(
+  JSON.stringify({
+    scenario: "language-actions",
+    small: actionSmall,
+    large: actionLarge,
+    pointActionGrowth: roundRecord(pointActionGrowth),
+    outputActionNormalizedGrowth: roundRecord(outputActionGrowth),
+  }),
+);
+if (
+  process.argv.includes("--check") &&
+  Object.entries(pointActionGrowth).some(([, growth]) => growth > MAX_POINT_QUERY_GROWTH)
+) {
+  console.error(
+    `language-actions: 結果件数が一定の操作が入力4倍で ${JSON.stringify(roundRecord(pointActionGrowth))} 倍に増加しました`,
+  );
+  failed = true;
+}
+if (
+  process.argv.includes("--check") &&
+  Object.entries(outputActionGrowth).some(([, growth]) => growth > MAX_NORMALIZED_GROWTH)
+) {
+  console.error(
+    `language-actions: 出力件数を正規化した操作時間が ${JSON.stringify(roundRecord(outputActionGrowth))} 倍に増加しました`,
+  );
+  failed = true;
+}
+if (
+  process.argv.includes("--check") &&
+  actionLarge.pointActions.some(
+    (action) => Math.max(action.coldMs, action.ms) > MAX_INTERACTIVE_ACTION_MS,
+  )
+) {
+  console.error(
+    `language-actions: 巨大IRの対話操作が ${MAX_INTERACTIVE_ACTION_MS} msを超えました: ${JSON.stringify(actionLarge.pointActions)}`,
+  );
+  failed = true;
+}
+if (
+  process.argv.includes("--check") &&
+  actionLarge.outputActions.some((action) => action.coldMs > MAX_COLD_FULL_ACTION_MS)
+) {
+  console.error(
+    `language-actions: 巨大IRの全件操作が初回 ${MAX_COLD_FULL_ACTION_MS} msを超えました: ${JSON.stringify(actionLarge.outputActions)}`,
   );
   failed = true;
 }
@@ -299,6 +388,158 @@ function benchmarkOpenDocumentFanout(source) {
   };
 }
 
+async function benchmarkLanguageActions(functionCount) {
+  const source = `source_filename = "main.c"\n${makeManyFunctions(functionCount, 40)}`;
+  const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source);
+  const lastFunctionOffset = source.lastIndexOf(`define i32 @f${functionCount - 1}`);
+  const lastReturnOffset = source.indexOf("ret i32 %v39", lastFunctionOffset);
+  const localReferenceOffset = lastReturnOffset + "ret i32 ".length;
+  const localReferencePosition = snapshot.document.positionAt(localReferenceOffset);
+  const visibleRange = {
+    start: { line: localReferencePosition.line - 45, character: 0 },
+    end: { line: localReferencePosition.line + 2, character: 0 },
+  };
+  const exactWorkspaceSymbols = new WorkspaceSymbolIndex();
+  exactWorkspaceSymbols.upsertSnapshot(snapshot);
+
+  const callSource = makeCallChain(functionCount);
+  const callSnapshot = makeDocumentSnapshot(`${LSP_DOCUMENT_URI}.calls`, callSource);
+  const callHierarchy = new CallHierarchyIndex();
+  callHierarchy.upsertSnapshot(callSnapshot);
+  const callOffset = callSource.indexOf(`@call${functionCount - 1}`);
+  const callItem = callHierarchy.prepare(
+    callSnapshot.uri,
+    callSnapshot.document.positionAt(callOffset + 1),
+  )[0];
+  if (!callItem) throw new Error("Call Hierarchyベンチマークの対象を解決できませんでした");
+
+  const typoSource = `${source}\ndeclare void @target_function()\ndefine void @typo_user() {\nentry:\n  call void @targat_function()\n  ret void\n}`;
+  const typoSnapshot = makeDocumentSnapshot(`${LSP_DOCUMENT_URI}.typo`, typoSource);
+  const typoDiagnostic = getDiagnostics(typoSnapshot).find(
+    (diagnostic) => diagnostic.code === "undefined-reference",
+  );
+  if (!typoDiagnostic) throw new Error("Code Actionベンチマークの診断を作成できませんでした");
+
+  const pointActions = [
+    measureAction("definition", () => {
+      if (!getDefinition(snapshot, localReferencePosition)) throw new Error("definitionなし");
+    }),
+    measureAction("hover", () => {
+      if (!getHover(snapshot, localReferencePosition)) throw new Error("hoverなし");
+    }),
+    measureAction("visible-inlay-hints", () => {
+      if (getInlayHints(snapshot, visibleRange).length < 40) throw new Error("inlay hint不足");
+    }),
+    measureAction("range-formatting", () => {
+      getRangeFormattingEdits(snapshot, visibleRange);
+    }),
+    measureAction("control-flow-graph", () => {
+      if (!getControlFlowGraph(snapshot, localReferencePosition)) {
+        throw new Error("control flow graphなし");
+      }
+    }),
+    measureAction("workspace-symbol-exact-query", () => {
+      if (exactWorkspaceSymbols.search(`@f${functionCount - 1}`).length !== 1) {
+        throw new Error("workspace symbolの完全一致結果が不正です");
+      }
+    }),
+    measureAction("call-hierarchy-incoming", () => {
+      const calls = callHierarchy.incoming(callItem);
+      if (functionCount > 1 && calls.length !== 1) throw new Error("incoming call不足");
+    }),
+    measureAction("call-hierarchy-outgoing", () => {
+      const calls = callHierarchy.outgoing(callItem);
+      if (calls.length !== 0) throw new Error("終端関数にoutgoing callがあります");
+    }),
+    measureAction("code-action", () => {
+      if (getCodeActions(typoSnapshot, typoDiagnostic.range, [typoDiagnostic]).length !== 1) {
+        throw new Error("quick fix不足");
+      }
+    }),
+    await measureAsyncAction("document-links", async () => {
+      const links = await getDocumentLinks(snapshot, {
+        workspaceFolderUris: [],
+        fileExists: async () => true,
+      });
+      if (links.length !== 1) throw new Error("document link不足");
+    }),
+  ];
+
+  const sharedSource = makeSharedGlobalReferences(functionCount * 10);
+  const sharedSnapshot = makeDocumentSnapshot(`${LSP_DOCUMENT_URI}.references`, sharedSource);
+  const sharedOffset = sharedSource.lastIndexOf("@shared");
+  const sharedPosition = sharedSnapshot.document.positionAt(sharedOffset + 1);
+  const outputActions = [
+    measureAction("references", () => {
+      if (getReferences(sharedSnapshot, sharedPosition).length !== functionCount * 10 + 1) {
+        throw new Error("references不足");
+      }
+    }),
+    measureAction("rename", () => {
+      const edit = getRenameEdit(sharedSnapshot, sharedPosition, "renamed");
+      if (edit?.changes?.[sharedSnapshot.uri]?.length !== functionCount * 10 + 1) {
+        throw new Error("rename edit不足");
+      }
+    }),
+    measureAction("completion", () => {
+      if (getCompletionItems(snapshot, localReferencePosition).length < functionCount) {
+        throw new Error("completion不足");
+      }
+    }),
+    measureAction("document-symbols", () => {
+      if (getDocumentSymbols(snapshot).length !== functionCount) {
+        throw new Error("document symbol不足");
+      }
+    }),
+    measureAction("semantic-tokens", () => {
+      if (getSemanticTokens(snapshot).data.length === 0) throw new Error("semantic token不足");
+    }),
+    measureAction("folding-ranges", () => {
+      if (getFoldingRanges(snapshot).length !== functionCount) {
+        throw new Error("folding range不足");
+      }
+    }),
+    measureAction("formatting", () => {
+      getFormattingEdits(snapshot);
+    }),
+  ];
+  return { bytes: source.length, pointActions, outputActions };
+}
+
+function measureAction(name, action) {
+  const coldStart = performance.now();
+  action();
+  const coldMs = performance.now() - coldStart;
+  const samples = Array.from({ length: SAMPLES }, () => {
+    const start = performance.now();
+    action();
+    return performance.now() - start;
+  });
+  return {
+    name,
+    coldMs: roundMilliseconds(coldMs),
+    ms: roundMilliseconds(median(samples)),
+  };
+}
+
+async function measureAsyncAction(name, action) {
+  const coldStart = performance.now();
+  await action();
+  const coldMs = performance.now() - coldStart;
+  const samples = [];
+  for (let index = 0; index < SAMPLES; index += 1) {
+    const start = performance.now();
+    // oxlint-disable-next-line no-await-in-loop -- 並列実行では単一操作の待ち時間を測定できない。
+    await action();
+    samples.push(performance.now() - start);
+  }
+  return {
+    name,
+    coldMs: roundMilliseconds(coldMs),
+    ms: roundMilliseconds(median(samples)),
+  };
+}
+
 function incrementalEditAt(source, sampleIndex) {
   const searchStart = Math.floor((source.length * (sampleIndex + 1)) / (SAMPLES + 1));
   const instructionStart = source.indexOf("add i32 0, 1", searchStart);
@@ -376,10 +617,28 @@ function makeWideRecoveryInstruction(incomingCount) {
   ].join("\n");
 }
 
+function makeCallChain(functionCount) {
+  return Array.from({ length: functionCount }, (_unused, index) => {
+    const body =
+      index + 1 < functionCount
+        ? [`  call void @call${index + 1}()`, "  ret void"]
+        : ["  ret void"];
+    return [`define void @call${index}() {`, "entry:", ...body, "}"].join("\n");
+  }).join("\n");
+}
+
 function median(values) {
   return values.toSorted((left, right) => left - right)[Math.floor(values.length / 2)];
 }
 
 function round(value) {
   return Math.round(value * 10) / 10;
+}
+
+function roundMilliseconds(value) {
+  return Math.round(value * 1_000) / 1_000;
+}
+
+function roundRecord(record) {
+  return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, round(value)]));
 }

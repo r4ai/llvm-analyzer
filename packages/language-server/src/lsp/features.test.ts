@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getCompletionItems,
   getCodeActions,
+  getControlFlowGraph,
   getDefinition,
   getDiagnostics,
   getDocumentSymbols,
@@ -120,6 +121,7 @@ describe("LSP 機能アダプタ", () => {
 
     expect(symbols.map((symbol) => symbol.name)).toEqual(["@g", "@main"]);
     expect(symbols[1]?.children?.map((symbol) => symbol.name)).toContain("%sum");
+    expect(getDocumentSymbols(snapshot)).toBe(symbols);
   });
 
   it("semanticTokens は定義と参照を分類して返す", () => {
@@ -127,6 +129,7 @@ describe("LSP 機能アダプタ", () => {
 
     expect(tokens.data.length).toBeGreaterThan(0);
     expect(tokens.resultId).toBe(snapshot.version.toString());
+    expect(getSemanticTokens(snapshot)).toBe(tokens);
   });
 
   it("semanticTokens は type と namespace 系シンボルも分類する", () => {
@@ -389,7 +392,8 @@ describe("LSP 機能アダプタ", () => {
   });
 
   it("foldingRange は関数ブロックを返す", () => {
-    expect(getFoldingRanges(snapshot)).toEqual([
+    const ranges = getFoldingRanges(snapshot);
+    expect(ranges).toEqual([
       {
         startLine: 2,
         startCharacter: 0,
@@ -397,6 +401,16 @@ describe("LSP 機能アダプタ", () => {
         endCharacter: 1,
       },
     ]);
+    expect(getFoldingRanges(snapshot)).toBe(ranges);
+  });
+
+  it("control flow graph は解析済み位置から現在関数だけを返す", () => {
+    expect(getControlFlowGraph(snapshot, { line: 5, character: 4 })).toBe(
+      ["flowchart TD", '  block_0["entry"]', '  block_1["exit"]', "  block_0 --> block_1"].join(
+        "\n",
+      ),
+    );
+    expect(getControlFlowGraph(snapshot, { line: 1, character: 0 })).toBeUndefined();
   });
 
   it("inlayHint はSSA値の推定型を返す", () => {
@@ -799,6 +813,24 @@ describe("LSP 機能アダプタ", () => {
         {
           start: { line: 0, character: 9 },
           end: { line: 0, character: 17 },
+        },
+        getDiagnostics(broken),
+      ),
+    ).toEqual([]);
+  });
+
+  it("codeAction はラベル定義がない関数で候補を返さない", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-no-labels.ll",
+      ["define void @f() {", "  br label %missing", "}"].join("\n"),
+    );
+
+    expect(
+      getCodeActions(
+        broken,
+        {
+          start: { line: 1, character: 11 },
+          end: { line: 1, character: 19 },
         },
         getDiagnostics(broken),
       ),

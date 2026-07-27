@@ -15,10 +15,28 @@
  * //=> "define void @f() {\n  ret void\n}"
  */
 export const formatLlvmIr = (source: string): string => {
+  return formatFragment(source, false);
+};
+
+/**
+ * LLVM IRの一部分を、開始位置の関数内外を指定して整形する。
+ *
+ * @param source 行境界で切り出したLLVM IR。
+ * @param inFunctionBody 断片の先頭が関数本体内ならtrue。
+ * @returns 整形後のLLVM IR断片。
+ *
+ * @remarks
+ * Range Formattingで文書全体を走査せず、選択行だけを整形するためのAPIである。
+ * `source`の途中に関数の開始行または閉じ括弧があれば、後続行の状態も更新する。
+ */
+export const formatLlvmIrFragment = (source: string, inFunctionBody: boolean): string =>
+  formatFragment(source, inFunctionBody);
+
+const formatFragment = (source: string, initialInFunctionBody: boolean): string => {
   const hasFinalNewline = source.endsWith("\n");
   const lines = source.split("\n");
   const contentLines = hasFinalNewline ? lines.slice(0, -1) : lines;
-  let inFunctionBody = false;
+  let inFunctionBody = initialInFunctionBody;
 
   const formatted = contentLines.map((line) => {
     const trimmed = line.trim();

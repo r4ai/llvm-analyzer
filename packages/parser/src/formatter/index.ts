@@ -1,1 +1,1 @@
-export { formatLlvmIr } from "./formatter.ts";
+export { formatLlvmIr, formatLlvmIrFragment } from "./formatter.ts";

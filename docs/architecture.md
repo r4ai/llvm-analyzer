@@ -99,17 +99,17 @@ parser sessionは直前の更新戦略と再パースbyte数を公開し、性�
 
 ## 機能の配置
 
-| 機能                             | 主な配置                                                                           | 備考                                                            |
-| -------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| 字句解析、構文解析               | `packages/parser/src/lexer`、`packages/parser/src/parser`                          | エラー回復し、診断を返す。                                      |
-| 型構文解析                       | `packages/parser/src/type`                                                         | 表示用の型構造を扱う。                                          |
-| フォーマット                     | `packages/parser/src/formatter`                                                    | 行単位の安定した整形を行う。                                    |
-| 定義、参照、rename               | `packages/analyzer/src/semantic` と `packages/language-server/src/lsp/features.ts` | analyzer が索引を持ち、language-server が LSP edit に変換する。 |
-| hover、completion                | `packages/analyzer/src/semantic/docs` と LSP feature 変換                          | opcode、type、attribute の説明辞書を再利用する。                |
-| 診断                             | parser、analyzer、external verifier                                                | language-server で設定と severity を適用する。                  |
-| Workspace Symbol、Call Hierarchy | `packages/language-server/src/lsp/workspace-symbols.ts`、`call-hierarchy.ts`       | `.ll` ファイルの解析結果を索引化する。                          |
-| CFG 表示                         | analyzer と vscode-extension                                                       | analyzer が Mermaid を作り、拡張機能が Markdown として開く。    |
-| Document Link                    | analyzer と language-server                                                        | 候補抽出と実ファイル解決を分ける。                              |
+| 機能                             | 主な配置                                                                           | 備考                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 字句解析、構文解析               | `packages/parser/src/lexer`、`packages/parser/src/parser`                          | エラー回復し、診断を返す。                                        |
+| 型構文解析                       | `packages/parser/src/type`                                                         | 表示用の型構造を扱う。                                            |
+| フォーマット                     | `packages/parser/src/formatter`                                                    | 行単位の安定した整形を行う。                                      |
+| 定義、参照、rename               | `packages/analyzer/src/semantic` と `packages/language-server/src/lsp/features.ts` | analyzer が索引を持ち、language-server が LSP edit に変換する。   |
+| hover、completion                | `packages/analyzer/src/semantic/docs` と LSP feature 変換                          | opcode、type、attribute の説明辞書を再利用する。                  |
+| 診断                             | parser、analyzer、external verifier                                                | language-server で設定と severity を適用する。                    |
+| Workspace Symbol、Call Hierarchy | `packages/language-server/src/lsp/workspace-symbols.ts`、`call-hierarchy.ts`       | `.ll` ファイルの解析結果を索引化する。                            |
+| CFG 表示                         | analyzer、language-server、vscode-extension                                        | 解析済みsnapshotからMermaidを返し、拡張機能がMarkdownとして開く。 |
+| Document Link                    | analyzer と language-server                                                        | 候補抽出と実ファイル解決を分ける。                                |
 
 ## 境界と副作用
 
@@ -131,7 +131,7 @@ parser sessionは直前の更新戦略と再パースbyte数を公開し、性�
 | `pnpm typecheck`                              | 各 workspace package の型検査。               |
 | `pnpm test`                                   | parser、analyzer、language-server の Vitest。 |
 | `pnpm test:coverage`                          | Vitest とカバレッジ計測。                     |
-| `pnpm benchmark:large-ir -- --check`          | 初回解析と差分編集後の性能回帰検査。          |
+| `pnpm benchmark:large-ir -- --check`          | 初回解析、差分編集、各LSP操作の性能回帰検査。 |
 | `pnpm build`                                  | workspace 全体の build。                      |
 | `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host 経由の E2E。            |
 

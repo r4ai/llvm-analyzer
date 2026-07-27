@@ -1,7 +1,10 @@
 import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { collectFileReferenceCandidates } from "@llvm-analyzer/analyzer";
+import {
+  collectFileReferenceCandidates,
+  type FileReferenceCandidate,
+} from "@llvm-analyzer/analyzer";
 import type { DocumentLink, Range as LspRange } from "vscode-languageserver";
 import type { DocumentSnapshot } from "./features.ts";
 
@@ -14,6 +17,7 @@ export interface DocumentLinkOptions {
 export const documentLinkProviderCapability = { resolveProvider: false };
 
 const MAX_DOCUMENT_LINK_CANDIDATES = 512;
+const candidatesBySnapshot = new WeakMap<DocumentSnapshot, readonly FileReferenceCandidate[]>();
 
 /**
  * `source_filename` と debug metadata のファイル参照を DocumentLink へ変換する。
@@ -31,10 +35,7 @@ export const getDocumentLinks = async (
 ): Promise<DocumentLink[]> => {
   const fileExists = options.fileExists ?? defaultFileExists;
   const bases = resolutionBases(snapshot.uri, options.workspaceFolderUris);
-  const candidates = collectFileReferenceCandidates(snapshot.parse.ast, snapshot.text).slice(
-    0,
-    MAX_DOCUMENT_LINK_CANDIDATES,
-  );
+  const candidates = fileReferenceCandidates(snapshot);
   const existsCache = new Map<string, Promise<boolean>>();
   const targetPaths = await Promise.all(
     candidates.map((candidate) =>
@@ -53,6 +54,17 @@ export const getDocumentLinks = async (
       },
     ];
   });
+};
+
+const fileReferenceCandidates = (snapshot: DocumentSnapshot): readonly FileReferenceCandidate[] => {
+  const cached = candidatesBySnapshot.get(snapshot);
+  if (cached) return cached;
+  const candidates = collectFileReferenceCandidates(snapshot.parse.ast, snapshot.text).slice(
+    0,
+    MAX_DOCUMENT_LINK_CANDIDATES,
+  );
+  candidatesBySnapshot.set(snapshot, candidates);
+  return candidates;
 };
 
 const firstExistingPath = async (
