@@ -34,6 +34,7 @@ describe("analyze: シンボル表とスコープ", () => {
       "%Point = type { i32, i32 }",
       "declare i32 @puts(ptr) #0",
       "attributes #0 = { nounwind }",
+      "$group = comdat any",
       "!0 = !{}",
     ].join("\n");
     const model = modelOf(source);
@@ -43,6 +44,7 @@ describe("analyze: シンボル表とスコープ", () => {
       ["%Point", "type", "module"],
       ["@puts", "function", "module"],
       ["#0", "attributeGroup", "module"],
+      ["$group", "comdat", "module"],
       ["!0", "metadata", "module"],
     ]);
   });
@@ -104,6 +106,26 @@ describe("analyze: シンボル表とスコープ", () => {
     ]);
     expect(model.diagnostics()).toEqual([]);
   });
+
+  it("名前付き型への typed pointer は型参照と parameter を分ける", () => {
+    const source = [
+      "%Node = type { ptr }",
+      "define void @use(%Node* %direct, %Node* noalias %qualified) {",
+      "entry:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.symbols.map((symbol) => [symbol.name, symbol.kind, symbol.type])).toEqual([
+      ["%Node", "type", undefined],
+      ["@use", "function", undefined],
+      ["%direct", "parameter", "%Node*"],
+      ["%qualified", "parameter", "%Node*"],
+      ["entry", "label", "label"],
+    ]);
+    expect(model.diagnostics()).toEqual([]);
+  });
 });
 
 describe("analyze: 定義参照インデックス", () => {
@@ -125,6 +147,7 @@ describe("analyze: 定義参照インデックス", () => {
     expect(
       model.referencesOf(model.symbolAt(posOf(source, "@puts"))?.id ?? "").map((r) => r.name),
     ).toEqual(["@puts", "@puts"]);
+    expect(model.referencesOf("missing-symbol")).toEqual([]);
   });
 
   it("関数引数の定義位置を referencesOf で重複させない", () => {
@@ -214,6 +237,28 @@ describe("analyze: 定義参照インデックス", () => {
 
     expect(model.definitionAt(posOf(source, "%target"))?.name).toBe("target");
     expect(model.diagnostics()).toEqual([]);
+  });
+
+  it("comdat 参照をモジュールスコープの定義へリンクする", () => {
+    const source = ["$group = comdat any", "@g = global i32 0, comdat($group)"].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "$group", 1))?.kind).toBe("comdat");
+    expect(model.diagnostics()).toEqual([]);
+  });
+
+  it("トップレベル use-list order はモジュール参照だけを解決する", () => {
+    const source = [
+      "@g = global i32 0",
+      "uselistorder ptr @g, { 0 }",
+      "uselistorder_bb @f, %entry, { 0 }",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "@g", 1))?.name).toBe("@g");
+    expect(model.diagnostics()).toEqual([
+      expect.objectContaining({ message: "`@f` が定義されていません" }),
+    ]);
   });
 
   it("型位置の名前付き型は同名ローカルより型定義を優先して解決する", () => {
@@ -310,6 +355,22 @@ describe("analyze: 定義参照インデックス", () => {
     ]);
   });
 
+  it("型定義でない `%name = ...` の参照を名前付き型と誤認しない", () => {
+    const source = "%value = add i32 %missing";
+
+    expect(modelOf(source).diagnostics()).toEqual([
+      expect.objectContaining({ message: "`%missing` が定義されていません" }),
+    ]);
+  });
+
+  it("属性名のない括弧内の型名を属性引数と誤認しない", () => {
+    const source = ["%T = type { i32 }", "(%T)"].join("\n");
+
+    expect(modelOf(source).diagnostics()).toEqual([
+      expect.objectContaining({ message: "`%T` が定義されていません" }),
+    ]);
+  });
+
   it("トップレベルの型位置にある名前付き型参照は型定義へ解決する", () => {
     const source = [
       "%Inner = type { i32 }",
@@ -320,6 +381,20 @@ describe("analyze: 定義参照インデックス", () => {
 
     expect(model.definitionAt(posOf(source, "%Inner", 1))?.kind).toBe("type");
     expect(model.definitionAt(posOf(source, "%Inner", 2))?.kind).toBe("type");
+    expect(model.diagnostics()).toEqual([]);
+  });
+
+  it("複数ある型定義の前半に含まれる参照を解決する", () => {
+    const source = [
+      "%First = type {",
+      "  %Target",
+      "}",
+      "%Middle = type { i32 }",
+      "%Target = type { i64 }",
+    ].join("\n");
+    const model = modelOf(source);
+
+    expect(model.definitionAt(posOf(source, "%Target"))?.name).toBe("%Target");
     expect(model.diagnostics()).toEqual([]);
   });
 
@@ -479,6 +554,20 @@ describe("analyze: 診断", () => {
     expect(modelOf(source).diagnostics()).toEqual([]);
   });
 
+  it("debug record の値とメタデータ参照を通常のスコープ規則で解決する", () => {
+    const source = [
+      "define void @f(ptr %p) {",
+      "entry:",
+      "  #dbg_value(ptr %p, !0, !DIExpression(), !1)",
+      "  ret void",
+      "}",
+      "!0 = !{}",
+      "!1 = !{}",
+    ].join("\n");
+
+    expect(modelOf(source).diagnostics()).toEqual([]);
+  });
+
   it("reportUndefinedReferences=false なら未定義参照診断を抑止する", () => {
     const source = "define i32 @main() {\nentry:\n  ret i32 %missing\n}";
     const model = analyze(parseModule(source).ast, {
@@ -602,6 +691,54 @@ describe("analyze: 型解決と documentSymbol", () => {
   });
 
   it.each([
+    ["%cast", "trunc i64 1", undefined],
+    ["%selected", "select i1 %c", undefined],
+    ["%element", "extractelement, i32 0", undefined],
+    ["%value", "extractvalue { i32 } %pair", undefined],
+    ["%aggregate", "extractvalue, 0", undefined],
+    ["%exchange", "cmpxchg ptr %p", undefined],
+    ["%rmw", "atomicrmw add ptr %p", undefined],
+    ["%array", "extractvalue [2 x i32] %items, 1", "i32"],
+    ["%past", "extractvalue [2 x i32] %items, 2", undefined],
+    ["%emptyResult", "extractvalue {} %emptyAggregate, 0", undefined],
+  ])("境界入力 %s = %s の結果型を安全に推定する", (name, instruction, expectedType) => {
+    const source = [
+      "define void @f(i1 %c, { i32 } %pair, ptr %p, [2 x i32] %items, {} %emptyAggregate) {",
+      "entry:",
+      `  ${name} = ${instruction}`,
+      "  ret void",
+      "}",
+    ].join("\n");
+
+    expect(modelOf(source).symbolAt(posOf(source, name))?.type).toBe(expectedType);
+  });
+
+  it("比較命令の型が欠けていても結果はスカラー i1 とする", () => {
+    const source = ["define void @f() {", "entry:", "  %cmp = icmp eq", "  ret void", "}"].join(
+      "\n",
+    );
+
+    expect(modelOf(source).symbolAt(posOf(source, "%cmp"))?.type).toBe("i1");
+  });
+
+  it("型がない関数引数らしき参照は parameter として登録しない", () => {
+    const source = "define void @f(%missing) {\nentry:\n  ret void\n}";
+    const model = modelOf(source);
+
+    expect(model.symbols.some((symbol) => symbol.kind === "parameter")).toBe(false);
+    expect(model.diagnostics()).toEqual([
+      expect.objectContaining({ message: "`%missing` が定義されていません" }),
+    ]);
+  });
+
+  it("引数括弧のない壊れたシグネチャでは戻り値型を引数型と誤認しない", () => {
+    const source = "define void @f i32 %missing {\n  ret void\n}";
+    const model = modelOf(source);
+
+    expect(model.symbols.some((symbol) => symbol.kind === "parameter")).toBe(false);
+  });
+
+  it.each([
     ["icmp eq <4 x i32> %a, %b", "<4 x i1>"],
     ["fcmp olt <vscale x 2 x float> %x, %y", "<vscale x 2 x i1>"],
   ])("vector 比較 %s の結果型を lane ごとの i1 として推定する", (instruction, type) => {
@@ -667,6 +804,33 @@ describe("analyze: 型解決と documentSymbol", () => {
       ["%v", "local"],
     ]);
   });
+
+  it("重複したローカル定義は documentSymbols の子へ一度だけ出す", () => {
+    const source = [
+      "define void @f() {",
+      "entry:",
+      "  %value = add i32 1, 2",
+      "  %value = add i32 3, 4",
+      "  ret void",
+      "}",
+    ].join("\n");
+
+    expect(
+      modelOf(source)
+        .documentSymbols()[0]
+        ?.children?.map((symbol) => symbol.name),
+    ).toEqual(["entry", "%value"]);
+  });
+
+  it("暗黙 entry ブロックでは存在する命令結果だけを documentSymbols の子へ出す", () => {
+    const source = "define void @f() {\n  %value = add i32 1, 2\n  ret void\n}";
+
+    expect(
+      modelOf(source)
+        .documentSymbols()[0]
+        ?.children?.map((symbol) => symbol.name),
+    ).toEqual(["%value"]);
+  });
 });
 
 describe("analyze: 壊れた特殊構文", () => {
@@ -675,6 +839,23 @@ describe("analyze: 壊れた特殊構文", () => {
       "@addr = constant ptr blockaddress(%target)",
       "define void @f() {",
       "entry:",
+      "  ret void",
+      "}",
+    ].join("\n");
+
+    expect(modelOf(source).diagnostics()).toEqual([
+      expect.objectContaining({
+        code: "undefined-reference",
+        message: "`%target` が定義されていません",
+      }),
+    ]);
+  });
+
+  it("関数名が欠けた blockaddress ラベルは未解決診断にフォールバックする", () => {
+    const source = [
+      "@addr = constant ptr blockaddress(, %target)",
+      "define void @f() {",
+      "target:",
       "  ret void",
       "}",
     ].join("\n");
@@ -714,6 +895,23 @@ describe("analyze: 直接呼び出し抽出", () => {
       ["@caller", "@target"],
       ["@caller", "@target"],
     ]);
+  });
+
+  it("元ソースを渡さない場合は直接呼び出しと CFG の辺を推測しない", () => {
+    const source = [
+      "declare void @callee()",
+      "define void @caller() {",
+      "entry:",
+      "  call void @callee()",
+      "  br label %exit",
+      "exit:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const model = analyze(parseModule(source).ast);
+
+    expect(model.directCalls()).toEqual([]);
+    expect(model.controlFlowGraphs()[0]?.edges).toEqual([]);
   });
 });
 

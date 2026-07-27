@@ -30,13 +30,26 @@ const IDENTIFIER_KINDS = new Set<Token["kind"]>([
 ]);
 
 /** トークン種別 → {@link IdentifierRef} の `kind` の対応。 */
-const REF_KIND: Record<string, IdentifierRef["kind"]> = {
-  GlobalIdentifier: "GlobalRef",
-  LocalIdentifier: "LocalRef",
-  MetadataIdentifier: "MetadataRef",
+const REF_KIND: Readonly<Record<Token["kind"], IdentifierRef["kind"] | undefined>> = {
   AttributeGroup: "AttributeGroupRef",
   ComdatIdentifier: "ComdatRef",
-};
+  Comment: undefined,
+  Constant: undefined,
+  DebugRecord: undefined,
+  Eof: undefined,
+  GlobalIdentifier: "GlobalRef",
+  Identifier: undefined,
+  Keyword: undefined,
+  Label: undefined,
+  LocalIdentifier: "LocalRef",
+  MetadataIdentifier: "MetadataRef",
+  Number: undefined,
+  Opcode: undefined,
+  Punctuation: undefined,
+  String: undefined,
+  Type: undefined,
+  Unknown: undefined,
+} as const;
 
 /** `start`/`end` トークンから範囲を作る（半開区間）。 */
 const spanOf = (start: Token, end: Token): Range => ({
@@ -53,7 +66,7 @@ const makeRef = (
   prev: Token | undefined,
   forcedKind?: IdentifierRef["kind"],
 ): IdentifierRef => {
-  const base = REF_KIND[token.kind] ?? "LocalRef";
+  const base = REF_KIND[token.kind]!;
   const kind =
     forcedKind ??
     (token.kind === "LocalIdentifier" && prev?.kind === "Type" && prev.value === "label"
@@ -69,8 +82,8 @@ const makeRef = (
 const collectRefs = (tokens: readonly Token[], excludeIndex = -1): IdentifierRef[] => {
   const refs: IdentifierRef[] = [];
   for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
-    if (i === excludeIndex || token === undefined) continue;
+    if (i === excludeIndex) continue;
+    const token = tokens[i]!;
     if (isInlineMetadataConstructor(tokens, i)) continue;
     if (isMetadataAttachmentKey(tokens, i)) continue;
     if (IDENTIFIER_KINDS.has(token.kind)) {
@@ -89,7 +102,7 @@ const isInlineMetadataConstructor = (tokens: readonly Token[], index: number): b
 /** `!dbg !0` などの attachment key は定義参照ではなく、直後のメタデータだけを参照として扱う。 */
 const isMetadataAttachmentKey = (tokens: readonly Token[], index: number): boolean =>
   tokens[index]?.kind === "MetadataIdentifier" &&
-  !/^!\d+$/u.test(tokens[index]?.value ?? "") &&
+  !/^!\d+$/u.test(tokens[index]!.value) &&
   (tokens[index + 1]?.kind === "MetadataIdentifier" || tokens[index + 1]?.value === "!");
 
 /** 周辺構文から参照種別を補正する。 */
@@ -118,9 +131,8 @@ const isBlockAddressLabel = (tokens: readonly Token[], index: number): boolean =
     return false;
   }
   for (let i = index - 2; i >= 0; i -= 1) {
-    const token = tokens[i];
-    if (!token) continue;
-    if (token.value === "(") return tokens[i - 1]?.value === "blockaddress";
+    const token = tokens[i]!;
+    if (token.value === "(") return tokens[i - 1]!.value === "blockaddress";
     if (token.value === ")" || token.value === "]" || token.value === "}") return false;
   }
   return false;
@@ -136,8 +148,8 @@ const findToken = (
   kind: Token["kind"],
 ): { token: Token; index: number } | undefined => {
   for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
-    if (token?.kind === kind) return { token, index: i };
+    const token = tokens[i]!;
+    if (token.kind === kind) return { token, index: i };
   }
   return undefined;
 };
@@ -161,10 +173,10 @@ const hasWord = (tokens: readonly Token[], kind: Token["kind"], value: string): 
  */
 export const parseModule = (source: string): ParseResult => {
   const tokens = tokenize(source).filter((t) => t.kind !== "Comment");
-  const eof = tokens[tokens.length - 1];
+  const eof = tokens[tokens.length - 1]!;
   const moduleRange: Range = {
     start: { offset: 0, line: 0, column: 0 },
-    end: eof?.range.end ?? { offset: 0, line: 0, column: 0 },
+    end: eof.range.end,
   };
 
   const entries: TopLevelEntry[] = [];
@@ -172,14 +184,14 @@ export const parseModule = (source: string): ParseResult => {
 
   /** `start` から論理行のトークンを集め、次の開始位置を返す。 */
   const collectLine = (start: number): { line: Token[]; next: number } => {
-    let lineEnd = tokens[start]?.range.start.line ?? 0;
+    let lineEnd = tokens[start]!.range.start.line;
     let end = start;
     while (
       end < tokens.length &&
-      tokens[end]?.kind !== "Eof" &&
-      (tokens[end]?.range.start.line ?? 0) <= lineEnd
+      tokens[end]!.kind !== "Eof" &&
+      tokens[end]!.range.start.line <= lineEnd
     ) {
-      lineEnd = Math.max(lineEnd, tokens[end]?.range.end.line ?? lineEnd);
+      lineEnd = Math.max(lineEnd, tokens[end]!.range.end.line);
       end += 1;
     }
     return { line: tokens.slice(start, end), next: end };
@@ -240,14 +252,13 @@ export const parseModule = (source: string): ParseResult => {
   };
 
   for (let pos = 0; pos < tokens.length && tokens[pos]?.kind !== "Eof"; ) {
-    const head = tokens[pos];
-    if (head === undefined) break;
+    const head = tokens[pos]!;
 
     // `define` のみブロック単位、それ以外は括弧の閉じる位置まで集める。
     if (head.kind === "Keyword" && head.value === "define") {
       const { signature, body, next } = collectFunction(pos);
       const defines = findToken(signature, "GlobalIdentifier");
-      const last = tokens[next - 1] ?? head;
+      const last = tokens[next - 1]!;
       const blocks = parseBlocks(body);
       entries.push({
         kind: "FunctionDefinition",
@@ -270,7 +281,7 @@ export const parseModule = (source: string): ParseResult => {
     }
 
     const { line, next } = collectTopLevelEntry(pos);
-    const range = spanOf(head, tokens[next - 1] ?? head);
+    const range = spanOf(head, tokens[next - 1]!);
     entries.push(parseLineEntry(head, line, range, diagnostics));
     pos = next;
   }
@@ -307,11 +318,10 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
 
   let i = 0;
   while (i < body.length) {
-    const head = body[i];
-    if (head === undefined) break;
+    const head = body[i]!;
     if (head.kind === "Label" || (head.kind === "String" && body[i + 1]?.value === ":")) {
       const { next } = collectLineIn(body, i);
-      const lineLast = body[next - 1] ?? head;
+      const lineLast = body[next - 1]!;
       flush();
       current = {
         label: { kind: "LabelRef", name: head.value, range: head.range },
@@ -324,7 +334,7 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
       i = next;
     } else if (head.kind === "DebugRecord") {
       const { record, next } = collectDebugRecordIn(body, i);
-      const recordLast = body[next - 1] ?? head;
+      const recordLast = body[next - 1]!;
       if (current === undefined) {
         current = {
           instructions: [],
@@ -342,7 +352,7 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
       (head.value === "uselistorder" || head.value === "uselistorder_bb")
     ) {
       const { element, next } = collectDelimitedElementIn(body, i);
-      const elementLast = body[next - 1] ?? head;
+      const elementLast = body[next - 1]!;
       if (current === undefined) {
         current = {
           instructions: [],
@@ -357,7 +367,7 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
       i = next;
     } else {
       const { element, next } = collectDelimitedElementIn(body, i);
-      const elementLast = body[next - 1] ?? head;
+      const elementLast = body[next - 1]!;
       if (current === undefined) {
         current = {
           instructions: [],
@@ -401,9 +411,15 @@ const updateTypeDelimiterDepth = (depth: number, value: string | undefined): num
  * 中身が型や定数から始まるため本体として扱わない。
  */
 const isFunctionBodyOpen = (tokens: readonly Token[], index: number): boolean => {
-  const next = tokens[index + 1];
-  if (!next || next.kind === "Eof" || next.value === "}") return true;
-  if (next.kind === "Label" || next.kind === "Opcode" || next.kind === "DebugRecord") return true;
+  const next = tokens[index + 1]!;
+  if (next.kind === "Eof" || next.value === "}") return true;
+  if (
+    next.kind === "Identifier" ||
+    next.kind === "Label" ||
+    next.kind === "Opcode" ||
+    next.kind === "DebugRecord"
+  )
+    return true;
   if (next.kind === "String" && tokens[index + 2]?.value === ":") return true;
   if (next.kind === "LocalIdentifier" && tokens[index + 2]?.value === "=") return true;
   return (
@@ -413,10 +429,10 @@ const isFunctionBodyOpen = (tokens: readonly Token[], index: number): boolean =>
 
 /** `body` 内の `start` から論理行のトークンを集める（本体用の行分割）。 */
 const collectLineIn = (body: readonly Token[], start: number): { line: Token[]; next: number } => {
-  let lineEnd = body[start]?.range.start.line ?? 0;
+  let lineEnd = body[start]!.range.start.line;
   let end = start;
-  while (end < body.length && (body[end]?.range.start.line ?? 0) <= lineEnd) {
-    lineEnd = Math.max(lineEnd, body[end]?.range.end.line ?? lineEnd);
+  while (end < body.length && body[end]!.range.start.line <= lineEnd) {
+    lineEnd = Math.max(lineEnd, body[end]!.range.end.line);
     end += 1;
   }
   return { line: body.slice(start, end), next: end };
@@ -481,7 +497,7 @@ const isInstructionContinuation = (
 /** 1 要素分のトークンから命令ノードを作る（`line` は非空である前提）。 */
 const makeInstruction = (line: readonly Token[]): Instruction => {
   const first = line[0] as Token;
-  const last = line[line.length - 1] ?? first;
+  const last = line[line.length - 1]!;
   let result: IdentifierRef | undefined;
   let excludeIndex = -1;
   if (first.kind === "LocalIdentifier" && line[1]?.value === "=") {
@@ -501,7 +517,7 @@ const makeInstruction = (line: readonly Token[]): Instruction => {
 /** 1 要素分のトークンから debug record ノードを作る。 */
 const makeDebugRecord = (line: readonly Token[]): DebugRecord => {
   const first = line[0] as Token;
-  const last = line[line.length - 1] ?? first;
+  const last = line[line.length - 1]!;
   return {
     kind: "DebugRecord",
     name: first.value,
@@ -513,7 +529,7 @@ const makeDebugRecord = (line: readonly Token[]): DebugRecord => {
 /** 関数本体に現れた use-list order directive を作る。 */
 const makeUseListOrderDirective = (line: readonly Token[]): UseListOrderDirective => {
   const first = line[0] as Token;
-  const last = line[line.length - 1] ?? first;
+  const last = line[line.length - 1]!;
   return {
     kind: "UseListOrderDirective",
     directive: first.value === "uselistorder_bb" ? "uselistorder_bb" : "uselistorder",
@@ -530,9 +546,10 @@ const parseLineEntry = (
   diagnostics: ParseDiagnostic[],
 ): TopLevelEntry => {
   if (head.kind === "Keyword" && head.value === "source_filename") {
+    const filename = firstString(line);
     return {
       kind: "SourceFilename",
-      ...(firstString(line) ? { filename: firstString(line) } : {}),
+      ...(filename ? { filename } : {}),
       references: collectRefs(line),
       range,
     };
@@ -544,19 +561,21 @@ const parseLineEntry = (
       : hasWord(line, "Keyword", "triple")
         ? "triple"
         : undefined;
+    const value = firstString(line);
     return {
       kind: "TargetDefinition",
       ...(target ? { target } : {}),
-      ...(firstString(line) ? { value: firstString(line) } : {}),
+      ...(value ? { value } : {}),
       references: collectRefs(line),
       range,
     };
   }
 
   if (head.kind === "Keyword" && head.value === "module" && hasWord(line, "Keyword", "asm")) {
+    const value = firstString(line);
     return {
       kind: "ModuleAsm",
-      ...(firstString(line) ? { value: firstString(line) } : {}),
+      ...(value ? { value } : {}),
       references: collectRefs(line),
       range,
     };

@@ -148,9 +148,8 @@ export const nodeVerifierProcessRunner: VerifierProcessRunner = (request) =>
     child.on("close", (exitCode) => {
       finish({ exitCode, stdout, stderr, ...(timedOut ? { timedOut: true } : {}) });
     });
-    child.stdin.on("error", () => {
-      // プロセスが先に終了した場合の EPIPE は、close/error 側の結果へ任せる。
-    });
+    // プロセスが先に終了した場合の EPIPE は、close/error 側の結果へ任せる。
+    child.stdin.on("error", child.stdin.destroy.bind(child.stdin));
     child.stdin.end(request.input);
   });
 
@@ -185,7 +184,7 @@ const diagnosticFromLine = (document: TextDocument, line: string): Diagnostic | 
   const lineNumber = Number(matched[1]);
   const columnNumber = Number(matched[2]);
   const kind = matched[3];
-  const message = matched[4] ?? "LLVM verifier diagnostic";
+  const message = matched[4]!;
   return {
     range: rangeAt(document, lineNumber, columnNumber),
     message,
@@ -199,7 +198,7 @@ const diagnosticFromLine = (document: TextDocument, line: string): Diagnostic | 
 const rangeAt = (document: TextDocument, lineNumber: number, columnNumber: number) => {
   const textLines = document.getText().split(/\r?\n/u);
   const line = clamp(lineNumber - 1, 0, Math.max(0, textLines.length - 1));
-  const lineLength = textLines[line]?.length ?? 0;
+  const lineLength = textLines[line]!.length;
   const character = clamp(columnNumber - 1, 0, lineLength);
   return {
     start: { line, character },

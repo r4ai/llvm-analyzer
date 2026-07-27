@@ -12,6 +12,18 @@ const WORKSPACE_SYMBOL_KINDS = new Set<AnalyzerSymbolKind>([
   "comdat",
 ]);
 
+const LSP_SYMBOL_KINDS: Readonly<Record<AnalyzerSymbolKind, SymbolKind>> = {
+  attributeGroup: SymbolKind.Namespace,
+  comdat: SymbolKind.Namespace,
+  function: SymbolKind.Function,
+  global: SymbolKind.Variable,
+  label: SymbolKind.Key,
+  local: SymbolKind.Variable,
+  metadata: SymbolKind.Object,
+  parameter: SymbolKind.Constant,
+  type: SymbolKind.Struct,
+};
+
 /** Workspace Symbols provider の capability 宣言。 */
 export const workspaceSymbolProviderCapability = true;
 
@@ -120,7 +132,7 @@ const workspaceSymbolsOf = (snapshot: DocumentSnapshot): SymbolInformation[] =>
 
 const toSymbolInformation = (uri: string, symbol: SemanticSymbol): SymbolInformation => ({
   name: symbol.name,
-  kind: toLspSymbolKind(symbol.kind),
+  kind: LSP_SYMBOL_KINDS[symbol.kind],
   location: {
     uri,
     range: {
@@ -137,32 +149,8 @@ const toSymbolInformation = (uri: string, symbol: SemanticSymbol): SymbolInforma
   containerName: symbol.scopeName,
 });
 
-const toLspSymbolKind = (kind: AnalyzerSymbolKind): SymbolKind => {
-  switch (kind) {
-    case "function":
-      return SymbolKind.Function;
-    case "global":
-      return SymbolKind.Variable;
-    case "type":
-      return SymbolKind.Struct;
-    case "metadata":
-      return SymbolKind.Object;
-    case "attributeGroup":
-    case "comdat":
-      return SymbolKind.Namespace;
-    case "parameter":
-      return SymbolKind.Constant;
-    case "local":
-      return SymbolKind.Variable;
-    case "label":
-      return SymbolKind.Key;
-  }
-};
-
 const compareSymbolInformation = (a: SymbolInformation, b: SymbolInformation): number => {
   const uriOrder = a.location.uri.localeCompare(b.location.uri);
   if (uriOrder !== 0) return uriOrder;
-  const lineOrder = a.location.range.start.line - b.location.range.start.line;
-  if (lineOrder !== 0) return lineOrder;
-  return a.location.range.start.character - b.location.range.start.character;
+  return a.location.range.start.line - b.location.range.start.line;
 };

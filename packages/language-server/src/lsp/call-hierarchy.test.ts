@@ -107,4 +107,27 @@ describe("CallHierarchyIndex", () => {
     expect(index.outgoing({ ...caller, data: undefined })).toEqual([]);
     expect(index.outgoing(caller)).toEqual([]);
   });
+
+  it("関数でない位置と未索引 URI の outgoing は空結果にする", () => {
+    const index = new CallHierarchyIndex();
+    index.upsert("file:///a.ll", "@global = global i32 0\n");
+
+    expect(index.prepare("file:///a.ll", { line: 0, character: 1 })).toEqual([]);
+    expect(
+      index.outgoing({
+        name: "@missing",
+        kind: SymbolKind.Function,
+        uri: "file:///missing.ll",
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 1 },
+        },
+        selectionRange: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 1 },
+        },
+        data: { uri: "file:///missing.ll", name: "@missing" },
+      }),
+    ).toEqual([]);
+  });
 });

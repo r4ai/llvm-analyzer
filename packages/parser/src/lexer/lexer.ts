@@ -49,10 +49,10 @@ export const tokenize = (source: string): Token[] => {
     let hi = lineStarts.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if ((lineStarts[mid] ?? 0) <= offset) lo = mid;
+      if (lineStarts[mid]! <= offset) lo = mid;
       else hi = mid - 1;
     }
-    return { offset, line: lo, column: offset - (lineStarts[lo] ?? 0) };
+    return { offset, line: lo, column: offset - lineStarts[lo]! };
   };
 
   const tokens: Token[] = [];
@@ -74,7 +74,7 @@ export const tokenize = (source: string): Token[] => {
   /** `pos` 以降の名前文字を読み進めた終端を返す。 */
   const scanName = (start: number): number => {
     let end = start;
-    while (end < length && NAME_CHAR.test(source[end] ?? "")) end += 1;
+    while (end < length && NAME_CHAR.test(source.charAt(end))) end += 1;
     return end;
   };
 
@@ -117,7 +117,7 @@ export const tokenize = (source: string): Token[] => {
 
   let pos = 0;
   while (pos < length) {
-    const ch = source[pos] ?? "";
+    const ch = source.charAt(pos);
 
     // 空白はスキップ
     if (ch === " " || ch === "\t" || ch === "\r" || ch === "\n") {

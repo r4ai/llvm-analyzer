@@ -53,8 +53,7 @@ export class CallHierarchyIndex {
       for (const call of snapshot.model
         .directCalls()
         .filter((entry) => entry.callee.name === target.name)) {
-        const caller = functionSymbol(snapshot, call.caller.name);
-        if (!caller) continue;
+        const caller = functionSymbol(snapshot, call.caller.name)!;
         const key = `${snapshot.uri}\0${caller.name}`;
         const existing = calls.get(key);
         if (existing) existing.fromRanges.push(toLspRange(call.range));

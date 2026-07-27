@@ -21,6 +21,7 @@ describe("WorkspaceSymbolIndex", () => {
     index.upsert(
       "file:///b.ll",
       [
+        "$group = comdat any",
         "define void @main() {",
         "entry:",
         "  ret void",
@@ -35,6 +36,7 @@ describe("WorkspaceSymbolIndex", () => {
     ).toEqual([
       ["%T", SymbolKind.Struct, "file:///a.ll"],
       ["@g", SymbolKind.Variable, "file:///a.ll"],
+      ["$group", SymbolKind.Namespace, "file:///b.ll"],
       ["@main", SymbolKind.Function, "file:///b.ll"],
       ["!named", SymbolKind.Object, "file:///b.ll"],
       ["#0", SymbolKind.Namespace, "file:///b.ll"],

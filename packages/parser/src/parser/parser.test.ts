@@ -272,6 +272,13 @@ describe("parseModule: 関数定義", () => {
     ]);
   });
 
+  it("inline metadata attachment key の直後の `!` を参照として収集しない", () => {
+    const entry = parseModule("define void @f() {\n  ret void, !dbg !{}\n}").ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(entry.blocks[0]?.instructions[0]?.operands).toEqual([]);
+  });
+
   it("複数行 debug record を1つの本体要素として扱う", () => {
     const fn = [
       "define void @f(i32 %a, i32 %b) {",
@@ -483,10 +490,49 @@ describe("parseModule: 関数定義", () => {
     ]);
   });
 
+  it("命令の次行にある引用符付きラベルを命令継続として取り込まない", () => {
+    const fn = [
+      "define void @f() {",
+      "entry:",
+      '  br label %"quoted"',
+      '"quoted":',
+      "  ret void",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(entry.blocks.map((block) => block.label?.name)).toEqual(["entry", '"quoted"']);
+  });
+
+  it("複数行 callbr の to 句を同じ命令として扱う", () => {
+    const fn = [
+      "define void @f() {",
+      "entry:",
+      '  callbr void asm sideeffect "", ""()',
+      "    to label %exit [label %exit]",
+      "exit:",
+      "  ret void",
+      "}",
+    ].join("\n");
+    const entry = parseModule(fn).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(entry.blocks[0]?.instructions).toHaveLength(1);
+    expect(entry.blocks[0]?.instructions[0]?.opcode).toBe("callbr");
+  });
+
   it("blockaddress でない壊れた括弧内の % 参照は LabelRef にしない", () => {
     const entry = parseModule("@addr = constant ptr not_blockaddress, %target)").ast.entries[0];
 
     expect(entry?.references.map((ref) => [ref.kind, ref.name])).toEqual([["LocalRef", "%target"]]);
+  });
+
+  it("閉じ括弧をまたいだ % 参照は blockaddress のラベルと誤認しない", () => {
+    const entry = parseModule("@addr = constant ptr wrapper(blockaddress(@f)), %target)").ast
+      .entries[0];
+
+    expect(entry?.references.at(-1)).toMatchObject({ kind: "LocalRef", name: "%target" });
   });
 });
 
@@ -507,6 +553,15 @@ describe("parseModule: 最新 LangRef のトップレベル構文", () => {
     ]);
     expect(ast.entries[1]?.defines?.name).toBe("$foo");
     expect(diagnostics).toEqual([]);
+  });
+
+  it("関数内の uselistorder_bb を directive として保持する", () => {
+    const entry = parseModule(
+      "define void @f() {\n  uselistorder_bb @f, %entry, { 0 }\nentry:\n  ret void\n}",
+    ).ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(entry.blocks[0]?.directives?.[0]?.directive).toBe("uselistorder_bb");
   });
 });
 
@@ -569,6 +624,52 @@ describe("parseModule: エラー回復", () => {
     const entry = parseModule("declare void ()").ast.entries[0];
     expect(entry?.kind).toBe("FunctionDeclaration");
     expect(entry?.defines?.name).toBe("");
+  });
+
+  it("関数名の無い define でも空名で回復する", () => {
+    const entry = parseModule("define void () {\n  ret void\n}").ast.entries[0];
+
+    expect(entry?.kind).toBe("FunctionDefinition");
+    expect(entry?.defines?.name).toBe("");
+  });
+
+  it("属性グループ番号の無い attributes でも空名で回復する", () => {
+    const entry = parseModule("attributes = { nounwind }").ast.entries[0];
+
+    expect(entry?.kind).toBe("AttributeGroupDefinition");
+    expect(entry?.defines?.name).toBe("");
+  });
+
+  it("未知 target・値なし target・値なし module asm を構造として保持する", () => {
+    const entries = parseModule(
+      ['target custom = "value"', "target triple =", "module asm"].join("\n"),
+    ).ast.entries;
+
+    expect(entries).toEqual([
+      expect.objectContaining({ kind: "TargetDefinition", value: '"value"' }),
+      expect.objectContaining({ kind: "TargetDefinition", target: "triple" }),
+      expect.objectContaining({ kind: "ModuleAsm" }),
+    ]);
+    expect(entries[0]).not.toHaveProperty("target");
+    expect(entries[1]).not.toHaveProperty("value");
+    expect(entries[2]).not.toHaveProperty("value");
+  });
+
+  it("未知の関数本体行を opcode のない命令として保持する", () => {
+    const entry = parseModule("define void @f() {\n  mystery\n}").ast.entries[0];
+    if (entry?.kind !== "FunctionDefinition") throw new Error("not a function def");
+
+    expect(entry.blocks[0]?.instructions).toHaveLength(1);
+    expect(entry.blocks[0]?.instructions[0]).not.toHaveProperty("opcode");
+  });
+
+  it("空の関数本体を閉じブレースとして認識する", () => {
+    const { ast, diagnostics } = parseModule("define void @empty() {}");
+    const entry = ast.entries[0];
+
+    expect(entry?.kind).toBe("FunctionDefinition");
+    if (entry?.kind === "FunctionDefinition") expect(entry.blocks).toEqual([]);
+    expect(diagnostics).toEqual([]);
   });
 });
 
