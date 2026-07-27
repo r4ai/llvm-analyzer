@@ -62,6 +62,8 @@ parser/analyzer は `vscode*` に一切依存しない。
 - **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
 - **CFG / 呼び出し情報**: 関数単位で basic block successor と直接呼び出し先を抽出する。CFG は `br` / `switch` / `indirectbr` / `invoke` / `callbr` の `label %bb` から静的に分かる範囲を対象にし、間接分岐や関数ポインタの完全解決は行わない。Mermaid 出力は analyzer の純粋関数で生成する。
 - **ファイル参照候補**: `source_filename` と `!DIFile(filename:, directory:)` から、エディタ上でリンク化できるファイルパス候補を抽出する。存在確認と URI 解決は language-server 側の副作用として分離し、コメント内 URL や任意文字列は対象にしない。リンク先は workspace folder または IR ファイルのディレクトリ配下に限定する。
+  性能ゲートは5サンプルの中央値を使い、数msで完了する処理はウォームアップ後のバッチ平均から入力増加率を判定する。
+  単発の一時停止を除外しても継続する超線形な増加は残るため、正規化増加率の閾値は緩めない。
 - オペコード/型/属性のドキュメント辞書を持ち、Hover/Completion で再利用。
 - 公開API例: `analyze(ast, { source }): SemanticModel`、`SemanticModel.definitionAt(pos)` / `referencesOf(symbol)` / `symbolAt(pos)` / `documentSymbols()` / `diagnostics()`
 

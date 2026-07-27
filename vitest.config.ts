@@ -9,15 +9,16 @@ import { defineConfig } from "vitest/config";
  */
 export default defineConfig({
   test: {
-    include: ["packages/*/src/**/*.test.ts"],
+    include: ["packages/*/src/**/*.test.ts", "scripts/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      include: ["packages/*/src/**/*.ts"],
+      include: ["packages/*/src/**/*.ts", "scripts/stable-benchmark.mts"],
       exclude: [
         "packages/*/src/**/*.test.ts",
         "packages/*/src/**/index.ts",
         "packages/language-server/src/server.ts",
         "packages/vscode-extension/src/extension.ts",
+        "scripts/**/*.test.ts",
       ],
       reporter: ["text", "html"],
       thresholds: {
