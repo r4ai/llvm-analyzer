@@ -1,5 +1,11 @@
 # llvm-analyzer-vscode
 
+## 0.1.6
+
+### Patch Changes
+
+- f888040: 巨大な LLVM IR でコードジャンプ、参照、Hover、補完、Inlay Hints、シンボル、Call Hierarchy、Document Links、Formatting、Code Action、CFG 表示を高速化する。
+
 ## 0.1.5
 
 ### Patch Changes

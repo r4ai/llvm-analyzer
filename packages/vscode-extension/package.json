@@ -1,7 +1,7 @@
 {
   "name": "llvm-analyzer-vscode",
   "displayName": "LLVM IR Analyzer",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "LLVM IR language support with syntax highlighting and LSP features.",
   "categories": [
     "Programming Languages"
