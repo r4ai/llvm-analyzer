@@ -72,16 +72,23 @@ sequenceDiagram
   VSCode->>Extension: .ll ファイルを開く
   Extension->>Server: LanguageClient で接続
   VSCode->>Server: textDocument/didChange
-  Server->>Parser: parseModule(text)
+  alt 単一トップレベル要素内の編集
+    Server->>Parser: updateParseResult(previous, text)
+  else 初回または境界を確定できない編集
+    Server->>Parser: parseModule(text)
+  end
   Server->>Analyzer: analyze(ast, { source })
   Analyzer->>Parser: 必要に応じて型構文を解析
+  Server->>Server: 同じsnapshotを全索引へ登録
   Server-->>VSCode: hover、definition、diagnostics など
   Server-->>Verifier: 設定が有効なら遅延実行
   Verifier-->>Server: verifier 診断
   Server-->>VSCode: 診断を差し替え
 ```
 
-`language-server` は変更を debounce して解析します。
+`language-server` は変更を debounce し、通常の関数内編集では変更されたトップレベル要素だけを再パースします。
+意味モデルはモジュール全体を再リンクし、トップレベル定義をまたぐ参照の整合性を保ちます。
+構造境界を確定できない変更は全体パースへ戻ります。
 外部 verifier の結果は、編集中のスナップショットと一致する場合だけ採用します。
 
 ## 機能の配置

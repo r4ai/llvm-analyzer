@@ -28,6 +28,7 @@ import {
   getRenameEdit,
   getSemanticTokens,
   makeDocumentSnapshot,
+  updateDocumentSnapshot,
   type DocumentSnapshot,
   defaultInlayHintSettings,
   normalizeInlayHintSettings,
@@ -203,12 +204,7 @@ function scheduleAnalysis(document: TextDocument): void {
   timers.set(
     document.uri,
     setTimeout(() => {
-      const snapshot = makeDocumentSnapshot(document.uri, document.getText(), document.version);
-      snapshots.set(document.uri, snapshot);
-      if (isLlFileUri(document.uri)) {
-        workspaceSymbols.upsertOpenDocument(document.uri, document.getText(), document.version);
-        callHierarchy.upsertSnapshot(snapshot);
-      }
+      const snapshot = analyzeDocument(document);
       void diagnosticSettings()
         .then((settings) => {
           if (!isSnapshotCurrent(snapshot)) return;
@@ -332,10 +328,20 @@ function snapshotFor(uri: string): DocumentSnapshot | undefined {
   const cached = snapshots.get(uri);
   if (!current) return cached;
   if (cached?.version === current.version) return cached;
-  const snapshot = makeDocumentSnapshot(uri, current.getText(), current.version);
-  snapshots.set(uri, snapshot);
-  if (isLlFileUri(uri)) {
-    workspaceSymbols.upsertOpenDocument(uri, current.getText(), current.version);
+  return analyzeDocument(current);
+}
+
+/** 最新テキストを解析し、ドキュメント単位の全索引へ同じスナップショットを登録する。 */
+function analyzeDocument(document: TextDocument): DocumentSnapshot {
+  const previous = snapshots.get(document.uri);
+  const text = document.getText();
+  const snapshot =
+    previous === undefined
+      ? makeDocumentSnapshot(document.uri, text, document.version)
+      : updateDocumentSnapshot(previous, text, document.version);
+  snapshots.set(document.uri, snapshot);
+  if (isLlFileUri(document.uri)) {
+    workspaceSymbols.upsertOpenSnapshot(snapshot);
     callHierarchy.upsertSnapshot(snapshot);
   }
   return snapshot;
@@ -379,13 +385,13 @@ async function indexFile(uri: string): Promise<void> {
   try {
     const openDocument = documents.get(uri);
     if (openDocument) {
-      workspaceSymbols.upsertOpenDocument(uri, openDocument.getText(), openDocument.version);
-      callHierarchy.upsert(uri, openDocument.getText(), openDocument.version);
+      analyzeDocument(openDocument);
       return;
     }
     const text = await readFile(fileURLToPath(uri), "utf8");
-    workspaceSymbols.upsertFile(uri, text);
-    callHierarchy.upsert(uri, text);
+    const snapshot = makeDocumentSnapshot(uri, text);
+    workspaceSymbols.upsertSnapshot(snapshot);
+    callHierarchy.upsertSnapshot(snapshot);
   } catch {
     workspaceSymbols.delete(uri);
     callHierarchy.delete(uri);
@@ -395,8 +401,9 @@ async function indexFile(uri: string): Promise<void> {
 async function closeWorkspaceDocument(uri: string): Promise<void> {
   try {
     const text = await readFile(fileURLToPath(uri), "utf8");
-    workspaceSymbols.closeOpenDocument(uri, text);
-    callHierarchy.upsert(uri, text);
+    const snapshot = makeDocumentSnapshot(uri, text);
+    workspaceSymbols.closeOpenSnapshot(uri, snapshot);
+    callHierarchy.upsertSnapshot(snapshot);
   } catch {
     workspaceSymbols.closeOpenDocument(uri);
     callHierarchy.delete(uri);

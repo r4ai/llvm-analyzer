@@ -1,9 +1,17 @@
 import { analyze, collectFileReferenceCandidates } from "../packages/analyzer/src/index.ts";
-import { getDefinition, makeDocumentSnapshot } from "../packages/language-server/src/index.ts";
+import {
+  getDefinition,
+  makeDocumentSnapshot,
+  updateDocumentSnapshot,
+} from "../packages/language-server/src/index.ts";
+import { CallHierarchyIndex } from "../packages/language-server/src/lsp/call-hierarchy.ts";
+import { WorkspaceSymbolIndex } from "../packages/language-server/src/lsp/workspace-symbols.ts";
 import { parseModule } from "../packages/parser/src/index.ts";
 
 const SIZE_FACTOR = 4;
 const MAX_NORMALIZED_GROWTH = 2;
+const MIN_INCREMENTAL_SPEEDUP = 1.2;
+const MIN_SHARING_SPEEDUP = 1.5;
 const SAMPLES = 3;
 const LSP_DOCUMENT_URI = "file:///benchmark-large-ir.ll";
 
@@ -66,9 +74,12 @@ const lifecycleSmall = benchmarkLspDocumentLifecycle(makeManyFunctions(400, 40))
 const lifecycleLarge = benchmarkLspDocumentLifecycle(makeManyFunctions(400 * SIZE_FACTOR, 40));
 const lifecycleNormalizedGrowth = {
   initialLoad: lifecycleLarge.initialLoadMs / lifecycleSmall.initialLoadMs / SIZE_FACTOR,
+  fullRebuildEdit:
+    lifecycleLarge.fullRebuildEditMs / lifecycleSmall.fullRebuildEditMs / SIZE_FACTOR,
   incrementalEdit:
     lifecycleLarge.incrementalEditMs / lifecycleSmall.incrementalEditMs / SIZE_FACTOR,
 };
+const lifecycleSpeedup = lifecycleLarge.fullRebuildEditMs / lifecycleLarge.incrementalEditMs;
 console.log(
   JSON.stringify({
     scenario: "lsp-document-lifecycle",
@@ -76,8 +87,10 @@ console.log(
     large: lifecycleLarge,
     normalizedGrowth: {
       initialLoad: round(lifecycleNormalizedGrowth.initialLoad),
+      fullRebuildEdit: round(lifecycleNormalizedGrowth.fullRebuildEdit),
       incrementalEdit: round(lifecycleNormalizedGrowth.incrementalEdit),
     },
+    incrementalSpeedup: round(lifecycleSpeedup),
   }),
 );
 if (
@@ -85,7 +98,40 @@ if (
   Object.values(lifecycleNormalizedGrowth).some((growth) => growth > MAX_NORMALIZED_GROWTH)
 ) {
   console.error(
-    `lsp-document-lifecycle: 入力倍率を正規化した増加率が initial-load=${round(lifecycleNormalizedGrowth.initialLoad)}, incremental-edit=${round(lifecycleNormalizedGrowth.incrementalEdit)} になりました`,
+    `lsp-document-lifecycle: 入力倍率を正規化した増加率が initial-load=${round(lifecycleNormalizedGrowth.initialLoad)}, full-rebuild-edit=${round(lifecycleNormalizedGrowth.fullRebuildEdit)}, incremental-edit=${round(lifecycleNormalizedGrowth.incrementalEdit)} になりました`,
+  );
+  failed = true;
+}
+if (process.argv.includes("--check") && lifecycleSpeedup < MIN_INCREMENTAL_SPEEDUP) {
+  console.error(
+    `lsp-document-lifecycle: インクリメンタル更新の高速化率が ${round(lifecycleSpeedup)} 倍に留まりました`,
+  );
+  failed = true;
+}
+
+const fanoutSmall = benchmarkOpenDocumentFanout(makeManyFunctions(400, 40));
+const fanoutLarge = benchmarkOpenDocumentFanout(makeManyFunctions(400 * SIZE_FACTOR, 40));
+const fanoutNormalizedGrowth =
+  fanoutLarge.sharedSnapshotMs / fanoutSmall.sharedSnapshotMs / SIZE_FACTOR;
+const sharingSpeedup = fanoutLarge.duplicatedAnalysisMs / fanoutLarge.sharedSnapshotMs;
+console.log(
+  JSON.stringify({
+    scenario: "open-document-index-fanout",
+    small: fanoutSmall,
+    large: fanoutLarge,
+    normalizedGrowth: round(fanoutNormalizedGrowth),
+    sharingSpeedup: round(sharingSpeedup),
+  }),
+);
+if (process.argv.includes("--check") && fanoutNormalizedGrowth > MAX_NORMALIZED_GROWTH) {
+  console.error(
+    `open-document-index-fanout: 共有スナップショットの登録時間が入力倍率を正規化した上で ${round(fanoutNormalizedGrowth)} 倍に増加しました`,
+  );
+  failed = true;
+}
+if (process.argv.includes("--check") && sharingSpeedup < MIN_SHARING_SPEEDUP) {
+  console.error(
+    `open-document-index-fanout: 解析済みスナップショット共有の高速化率が ${round(sharingSpeedup)} 倍に留まりました`,
   );
   failed = true;
 }
@@ -136,19 +182,56 @@ function benchmarkLspDocumentLifecycle(source) {
   });
 
   let current = source;
-  const incrementalEditSamples = Array.from({ length: SAMPLES }, (_, index) => {
+  let previous = makeDocumentSnapshot(LSP_DOCUMENT_URI, current, SAMPLES + 1);
+  const editSamples = Array.from({ length: SAMPLES }, (_, index) => {
     const edit = incrementalEditAt(current, index);
-    const start = performance.now();
-    current = replaceAt(current, edit.offset, edit.text);
-    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, current, SAMPLES + index + 1);
-    assertDefinitionAvailable(snapshot, edit.referenceOffset);
-    return performance.now() - start;
+    const updated = replaceAt(current, edit.offset, edit.text);
+    const version = SAMPLES + index + 2;
+
+    const fullStart = performance.now();
+    const full = makeDocumentSnapshot(LSP_DOCUMENT_URI, updated, version);
+    assertDefinitionAvailable(full, edit.referenceOffset);
+    const fullRebuildMs = performance.now() - fullStart;
+
+    const incrementalStart = performance.now();
+    previous = updateDocumentSnapshot(previous, updated, version);
+    assertDefinitionAvailable(previous, edit.referenceOffset);
+    const incrementalEditMs = performance.now() - incrementalStart;
+    current = updated;
+    return { fullRebuildMs, incrementalEditMs };
   });
 
   return {
     bytes: source.length,
     initialLoadMs: round(median(initialLoadSamples)),
-    incrementalEditMs: round(median(incrementalEditSamples)),
+    fullRebuildEditMs: round(median(editSamples.map((sample) => sample.fullRebuildMs))),
+    incrementalEditMs: round(median(editSamples.map((sample) => sample.incrementalEditMs))),
+  };
+}
+
+function benchmarkOpenDocumentFanout(source) {
+  const duplicatedSamples = Array.from({ length: SAMPLES }, (_, index) => {
+    const workspaceSymbols = new WorkspaceSymbolIndex();
+    const callHierarchy = new CallHierarchyIndex();
+    const start = performance.now();
+    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
+    workspaceSymbols.upsertOpenDocument(snapshot.uri, source, snapshot.version);
+    callHierarchy.upsertSnapshot(snapshot);
+    return performance.now() - start;
+  });
+  const sharedSamples = Array.from({ length: SAMPLES }, (_, index) => {
+    const workspaceSymbols = new WorkspaceSymbolIndex();
+    const callHierarchy = new CallHierarchyIndex();
+    const start = performance.now();
+    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
+    workspaceSymbols.upsertOpenSnapshot(snapshot);
+    callHierarchy.upsertSnapshot(snapshot);
+    return performance.now() - start;
+  });
+  return {
+    bytes: source.length,
+    duplicatedAnalysisMs: round(median(duplicatedSamples)),
+    sharedSnapshotMs: round(median(sharedSamples)),
   };
 }
 

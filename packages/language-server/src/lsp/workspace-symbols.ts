@@ -72,8 +72,21 @@ export class WorkspaceSymbolIndex {
    * @param version ドキュメントバージョン。
    */
   upsertOpenDocument(uri: string, text: string, version: number): void {
-    this.openUris.add(uri);
-    this.upsertSnapshot(makeDocumentSnapshot(uri, text, version));
+    this.upsertOpenSnapshot(makeDocumentSnapshot(uri, text, version));
+  }
+
+  /**
+   * 解析済みのopen documentを索引へ登録する。
+   *
+   * @param snapshot language serverが同じ更新に対して作ったスナップショット。
+   *
+   * @remarks
+   * language serverの診断、Workspace Symbols、Call Hierarchyで同じ解析結果を共有し、
+   * 巨大IRを機能ごとに再解析しないために使う。
+   */
+  upsertOpenSnapshot(snapshot: DocumentSnapshot): void {
+    this.openUris.add(snapshot.uri);
+    this.upsertSnapshot(snapshot);
   }
 
   /**
@@ -83,12 +96,26 @@ export class WorkspaceSymbolIndex {
    * @param diskText 閉じた時点のディスク内容。読めなければ undefined。
    */
   closeOpenDocument(uri: string, diskText?: string): void {
-    this.openUris.delete(uri);
     if (diskText === undefined) {
+      this.closeOpenSnapshot(uri);
+      return;
+    }
+    this.closeOpenSnapshot(uri, makeDocumentSnapshot(uri, diskText));
+  }
+
+  /**
+   * open documentを閉じ、解析済みのディスク内容へ索引を戻す。
+   *
+   * @param uri 閉じたドキュメントのURI。
+   * @param snapshot ディスク内容のスナップショット。読めなければ省略する。
+   */
+  closeOpenSnapshot(uri: string, snapshot?: DocumentSnapshot): void {
+    this.openUris.delete(uri);
+    if (!snapshot) {
       this.delete(uri);
       return;
     }
-    this.upsertFile(uri, diskText);
+    this.upsertSnapshot(snapshot);
   }
 
   /**
