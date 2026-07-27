@@ -2,18 +2,6 @@ import { tokenize, type Token } from "../lexer/index.ts";
 import type { ParseDiagnostic } from "../ast/index.ts";
 import type { LlvmType, LlvmTypeParseResult } from "./types.ts";
 
-const FLOATING_TYPES = new Set([
-  "half",
-  "bfloat",
-  "float",
-  "double",
-  "x86_fp80",
-  "fp128",
-  "ppc_fp128",
-  "x86_mmx",
-  "x86_amx",
-]);
-
 /**
  * LLVM IR 型構文を型 AST へパースする。
  *
@@ -116,10 +104,6 @@ class TypeParser {
     if (token.value === "[") return this.parseArrayType();
     if (token.value === "{") return this.parseStructType(false);
     if (token.value === "<") return this.parseAngleType();
-    if (token.value === "opaque") {
-      this.advance();
-      return { kind: "OpaqueStructType" };
-    }
     this.addDiagnostic(token, "要素型が必要です");
     return undefined;
   }
@@ -138,11 +122,7 @@ class TypeParser {
     if (token.value === "metadata") return { kind: "MetadataType" };
     if (token.value === "token") return { kind: "TokenType" };
     if (token.value === "opaque") return { kind: "OpaqueStructType" };
-    if (FLOATING_TYPES.has(token.value)) {
-      return { kind: "FloatingPointType", name: token.value };
-    }
-    this.addDiagnostic(token, `未対応の型です: ${token.value}`);
-    return undefined;
+    return { kind: "FloatingPointType", name: token.value };
   }
 
   private parseOpaquePointerType(): LlvmType {
@@ -288,7 +268,7 @@ class TypeParser {
   }
 
   private peek(): Token {
-    return this.tokens[this.pos] ?? this.tokens[this.tokens.length - 1]!;
+    return this.tokens[this.pos]!;
   }
 
   private advance(): Token {

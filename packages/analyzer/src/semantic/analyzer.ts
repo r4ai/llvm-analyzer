@@ -59,13 +59,6 @@ interface Occurrence {
   readonly symbol: MutableSymbol;
 }
 
-const MODULE_REF_KINDS = new Set<IdentifierRef["kind"]>([
-  "GlobalRef",
-  "MetadataRef",
-  "AttributeGroupRef",
-  "ComdatRef",
-]);
-
 const TERMINATOR_OPCODES = new Set([
   "ret",
   "br",
@@ -79,6 +72,16 @@ const TERMINATOR_OPCODES = new Set([
   "cleanupret",
   "unreachable",
 ]);
+
+const ENTRY_SYMBOL_KINDS: Readonly<Partial<Record<TopLevelEntry["kind"], SymbolKind>>> = {
+  AttributeGroupDefinition: "attributeGroup",
+  ComdatDefinition: "comdat",
+  FunctionDeclaration: "function",
+  FunctionDefinition: "function",
+  GlobalVariable: "global",
+  MetadataDefinition: "metadata",
+  TypeDefinition: "type",
+};
 
 /**
  * AST から意味モデルを構築する純粋関数。
@@ -332,7 +335,7 @@ const isFunctionParameterRef = (source: string | undefined, ref: IdentifierRef):
 /** 指定位置以降にある最初の非空白文字のoffsetを返す。 */
 const nextNonWhitespaceOffset = (source: string, start: number): number => {
   let offset = start;
-  while (offset < source.length && /\s/u.test(source[offset] ?? "")) offset += 1;
+  while (offset < source.length && /\s/u.test(source.charAt(offset))) offset += 1;
   return offset;
 };
 
@@ -377,23 +380,7 @@ const resolvableTopLevelRefs = (
  * @returns analyzer が扱うシンボル種別。
  */
 const symbolKindOfEntry = (entry: TopLevelEntry): SymbolKind => {
-  switch (entry.kind) {
-    case "GlobalVariable":
-      return "global";
-    case "ComdatDefinition":
-      return "comdat";
-    case "FunctionDeclaration":
-    case "FunctionDefinition":
-      return "function";
-    case "TypeDefinition":
-      return "type";
-    case "MetadataDefinition":
-      return "metadata";
-    case "AttributeGroupDefinition":
-      return "attributeGroup";
-    default:
-      return "global";
-  }
+  return ENTRY_SYMBOL_KINDS[entry.kind]!;
 };
 
 /**
@@ -417,7 +404,7 @@ const validateFunctionBody = (
         diagnostics.push({
           code: "instruction-after-terminator",
           range: instruction.range,
-          message: `終端命令 \`${terminator.opcode ?? ""}\` の後に命令があります`,
+          message: `終端命令 \`${terminator.opcode!}\` の後に命令があります`,
           severity: "error",
         });
       }
@@ -483,25 +470,24 @@ const extractControlFlowGraph = (
   entry: FunctionDefinition,
   source: string | undefined,
 ): ControlFlowGraph => {
-  const blocks = entry.blocks.map((block, index) => ({
-    name: block.label?.name ?? (index === 0 ? "entry" : `block${index}`),
+  const blocks = entry.blocks.map((block) => ({
+    name: block.label?.name ?? "entry",
     range: block.range,
   }));
   const knownLabels = new Set(blocks.map((block) => block.name));
   const edges: ControlFlowEdge[] = [];
 
-  for (let index = 0; index < entry.blocks.length; index += 1) {
-    const block = entry.blocks[index];
-    if (!block) continue;
-    const sourceName = blocks[index]?.name ?? `block${index}`;
+  entry.blocks.forEach((block, index) => {
+    const sourceName = blocks[index]!.name;
     const terminator = block.instructions.find(
       (instruction) => instruction.opcode && CFG_TERMINATOR_OPCODES.has(instruction.opcode),
     );
-    if (!terminator) continue;
-    for (const targetName of successorLabels(terminator, knownLabels, source)) {
-      edges.push({ from: sourceName, to: targetName, range: terminator.range });
+    if (terminator) {
+      for (const targetName of successorLabels(terminator, knownLabels, source)) {
+        edges.push({ from: sourceName, to: targetName, range: terminator.range });
+      }
     }
-  }
+  });
 
   return { functionName: entry.defines.name, range: entry.range, blocks, edges };
 };
@@ -580,10 +566,17 @@ const resolveRef = (
   moduleScope: Scope,
   functionScope: Scope | undefined,
 ): MutableSymbol | undefined => {
-  if (ref.kind === "LabelRef") return functionScope?.symbols.get(labelNameOf(ref));
-  if (ref.kind === "LocalRef") return functionScope?.symbols.get(ref.name);
-  if (MODULE_REF_KINDS.has(ref.kind)) return moduleScope.symbols.get(ref.name);
-  return undefined;
+  switch (ref.kind) {
+    case "LabelRef":
+      return functionScope?.symbols.get(labelNameOf(ref));
+    case "LocalRef":
+      return functionScope?.symbols.get(ref.name);
+    case "GlobalRef":
+    case "MetadataRef":
+    case "AttributeGroupRef":
+    case "ComdatRef":
+      return moduleScope.symbols.get(ref.name);
+  }
 };
 
 /**
@@ -635,13 +628,12 @@ const isTypePositionRef = (
   const beforeTokens = tokenize(source.slice(lineStart, ref.range.start.offset)).filter(
     (token) => token.kind !== "Eof" && token.kind !== "Comment",
   );
-  const afterTokens = tokenize(source.slice(ref.range.end.offset, lineEnd)).filter(
+  const next = tokenize(source.slice(ref.range.end.offset, lineEnd)).find(
     (token) => token.kind !== "Eof" && token.kind !== "Comment",
   );
   const previous = beforeTokens.at(-1);
-  const next = afterTokens[0];
   if (next && isValueTokenAfterType(next)) return true;
-  if (next?.value === "*" && afterTokens[1] && isValueTokenAfterType(afterTokens[1])) return true;
+  if (next?.value === "*") return true;
   return (
     previous?.kind === "Opcode" ||
     (previous?.kind === "Keyword" && TYPE_PRECEDING_KEYWORDS.has(previous.value)) ||
@@ -674,13 +666,10 @@ const isValueTokenAfterType = (token: Token): boolean =>
 
 /** `byval(%T)` のような属性引数内にある型参照かを判定する。 */
 const isAttributeTypeArgumentRef = (source: string, ref: IdentifierRef): boolean => {
-  const context = tokenContextOnLine(source, ref);
-  if (!context) return false;
-  const { tokens, index } = context;
+  const { tokens, index } = tokenContextOnLine(source, ref);
   let parenDepth = 0;
   for (let i = index - 1; i >= 0; i -= 1) {
-    const token = tokens[i];
-    if (!token) continue;
+    const token = tokens[i]!;
     if (token.value === ")") {
       parenDepth += 1;
       continue;
@@ -697,9 +686,7 @@ const isAttributeTypeArgumentRef = (source: string, ref: IdentifierRef): boolean
 
 /** `getelementptr ... %T, ptr ...` の先頭型オペランドかを判定する。 */
 const isGetElementPtrTypeOperandRef = (source: string, ref: IdentifierRef): boolean => {
-  const context = tokenContextOnLine(source, ref);
-  if (!context) return false;
-  const { tokens, index } = context;
+  const { tokens, index } = tokenContextOnLine(source, ref);
   const opcodeIndex = tokens.findIndex(
     (token, candidateIndex) =>
       candidateIndex < index && token.kind === "Opcode" && token.value === "getelementptr",
@@ -712,7 +699,7 @@ const isGetElementPtrTypeOperandRef = (source: string, ref: IdentifierRef): bool
 const tokenContextOnLine = (
   source: string,
   ref: IdentifierRef,
-): { readonly tokens: readonly Token[]; readonly index: number } | undefined => {
+): { readonly tokens: readonly Token[]; readonly index: number } => {
   const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
   const lineEndIndex = source.indexOf("\n", ref.range.end.offset);
   const lineEnd = lineEndIndex < 0 ? source.length : lineEndIndex;
@@ -723,7 +710,7 @@ const tokenContextOnLine = (
   const index = tokens.findIndex(
     (token) => token.range.start.offset === relativeOffset && token.value === ref.name,
   );
-  return index < 0 ? undefined : { tokens, index };
+  return { tokens, index };
 };
 
 /**
@@ -738,8 +725,7 @@ const isWithinTopLevelTypeDefinition = (ranges: readonly Range[], ref: Identifie
   let high = ranges.length - 1;
   while (low <= high) {
     const middle = (low + high) >> 1;
-    const range = ranges[middle];
-    if (!range) return false;
+    const range = ranges[middle]!;
     if (ref.range.start.offset < range.start.offset) high = middle - 1;
     else if (ref.range.end.offset > range.end.offset) low = middle + 1;
     else return true;
@@ -761,7 +747,6 @@ const resolveBlockAddressRef = (
   const tokens = tokenize(source.slice(blockAddressStart, ref.range.start.offset)).filter(
     (token) => token.kind !== "Eof" && token.kind !== "Comment",
   );
-  if (tokens[0]?.value !== "blockaddress") return undefined;
   const functionName = tokens.findLast((token) => token.kind === "GlobalIdentifier")?.value;
   if (!functionName) return undefined;
   return functionScopes.get(functionName)?.symbols.get(labelNameOf(ref));
@@ -859,7 +844,7 @@ const makeDocumentSymbols = (
       range: entry.range,
       selectionRange: entry.defines.range,
       ...(entry.kind === "FunctionDefinition"
-        ? { children: functionChildren(entry, functionScopes.get(entry.defines.name)) }
+        ? { children: functionChildren(entry, functionScopes.get(entry.defines.name)!) }
         : {}),
     };
     docs.push(doc);
@@ -874,11 +859,7 @@ const makeDocumentSymbols = (
  * @param scope 関数定義に対応するスコープ。
  * @returns 関数の子として表示する documentSymbol 列。
  */
-const functionChildren = (
-  entry: FunctionDefinition,
-  scope: Scope | undefined,
-): readonly DocumentSymbol[] => {
-  if (!scope) return [];
+const functionChildren = (entry: FunctionDefinition, scope: Scope): readonly DocumentSymbol[] => {
   const seen = new Set<SymbolId>();
   const refs = [
     ...entry.references.filter((r) => r.kind === "LocalRef"),
@@ -961,8 +942,7 @@ const occurrenceAt = (
   let high = occurrences.length - 1;
   while (low <= high) {
     const middle = (low + high) >> 1;
-    const occurrence = occurrences[middle];
-    if (!occurrence) return undefined;
+    const occurrence = occurrences[middle]!;
     if (contains(occurrence.ref.range, position)) return occurrence;
     if (position.offset < occurrence.ref.range.start.offset) high = middle - 1;
     else low = middle + 1;

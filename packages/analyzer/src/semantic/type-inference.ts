@@ -60,8 +60,7 @@ export const inferInstructionResultType = (
   const line = source.slice(instruction.range.start.offset, instruction.range.end.offset);
   const opcodeMatch = new RegExp(`(?:^|[\\s=])${escapeRegExp(instruction.opcode)}\\b`, "u").exec(
     line,
-  );
-  if (!opcodeMatch) return undefined;
+  )!;
   const afterOpcode = line.slice(opcodeMatch.index + opcodeMatch[0].length);
   if (instruction.opcode === "icmp" || instruction.opcode === "fcmp")
     return compareResultType(afterOpcode);
@@ -70,9 +69,8 @@ export const inferInstructionResultType = (
     if (toIndex < 0) return undefined;
     return leadingTypeText(afterOpcode.slice(toIndex + "to".length));
   }
-  const specificType = inferInstructionResultTypeByOpcode(instruction.opcode, afterOpcode);
-  if (SPECIAL_RESULT_OPCODES.has(instruction.opcode)) return specificType;
-  if (specificType !== undefined) return specificType;
+  if (SPECIAL_RESULT_OPCODES.has(instruction.opcode))
+    return inferInstructionResultTypeByOpcode(instruction.opcode, afterOpcode);
   return firstTypeText(afterOpcode);
 };
 
@@ -91,22 +89,16 @@ const inferInstructionResultTypeByOpcode = (
     (token) => token.kind !== "Eof" && token.kind !== "Comment",
   );
   const segments = splitTopLevelSegments(tokens);
-  switch (opcode) {
-    case "select":
-      return leadingTypeOf(segments[1] ?? []);
-    case "extractelement":
-      return elementTypeOfVector(leadingTypeOf(segments[0] ?? []));
-    case "extractvalue":
-      return indexedAggregateElementType(leadingTypeOf(segments[0] ?? []), segments[1] ?? []);
-    case "cmpxchg": {
-      const valueType = leadingTypeOf(segments[1] ?? []);
-      return valueType ? `{ ${valueType}, i1 }` : undefined;
-    }
-    case "atomicrmw":
-      return inferAtomicRmwResultType(tokens);
-    default:
-      return undefined;
+  if (opcode === "select") return leadingTypeOf(segments[1] ?? []);
+  if (opcode === "extractelement") return elementTypeOfVector(leadingTypeOf(segments[0]!));
+  if (opcode === "extractvalue") {
+    return indexedAggregateElementType(leadingTypeOf(segments[0]!), segments[1] ?? []);
   }
+  if (opcode === "cmpxchg") {
+    const valueType = leadingTypeOf(segments[1] ?? []);
+    return valueType ? `{ ${valueType}, i1 }` : undefined;
+  }
+  return inferAtomicRmwResultType(tokens);
 };
 
 /** top-level の `,` でトークン列を分割する。 */
@@ -145,7 +137,11 @@ const indexedAggregateElementType = (
   const indexToken = indexSegment.find((token) => /^\d+$/u.test(token.value));
   if (!indexToken) return undefined;
   const index = Number.parseInt(indexToken.value, 10);
-  if (!Number.isInteger(index) || index < 0) return undefined;
+  const arrayMatch = /^\[(?<count>\d+) x (?<element>.+)\]$/u.exec(aggregateType);
+  if (arrayMatch?.groups?.element !== undefined) {
+    const count = Number.parseInt(arrayMatch.groups.count!, 10);
+    return index < count ? arrayMatch.groups.element : undefined;
+  }
   const elements = aggregateElementTypes(aggregateType);
   return elements[index];
 };
@@ -155,8 +151,6 @@ const aggregateElementTypes = (type: string): readonly string[] => {
   const structMatch = /^\{ (?<body>.*) \}$/u.exec(type) ?? /^<\{ (?<body>.*) \}>$/u.exec(type);
   if (structMatch?.groups?.body !== undefined)
     return splitTopLevelTypeText(structMatch.groups.body);
-  const arrayMatch = /^\[(?<count>\d+) x (?<element>.+)\]$/u.exec(type);
-  if (arrayMatch?.groups?.element !== undefined) return [arrayMatch.groups.element];
   return [];
 };
 
@@ -176,7 +170,7 @@ const splitTopLevelTypeText = (source: string): readonly string[] => {
     else if (char === "}" || char === "]" || char === ">" || char === ")")
       depth = Math.max(0, depth - 1);
   }
-  if (current.trim() !== "") parts.push(current.trim());
+  parts.push(current.trim());
   return parts;
 };
 
@@ -221,7 +215,7 @@ export const inferTypeBefore = (
   if (!source) return undefined;
   const lineStart = source.lastIndexOf("\n", Math.max(0, ref.range.start.offset - 1)) + 1;
   const before = source.slice(lineStart, ref.range.start.offset);
-  return inferLeadingParameterType(before) ?? trailingTypeText(before);
+  return inferLeadingParameterType(before);
 };
 
 /**
@@ -240,10 +234,9 @@ const inferLeadingParameterType = (before: string): string | undefined => {
   );
   let parenDepth = 0;
   let typeDepth = 0;
-  let segmentStart = 0;
+  let segmentStart = -1;
   for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i];
-    if (!token) continue;
+    const token = tokens[i]!;
     if (token.value === "(" && typeDepth === 0) {
       parenDepth += 1;
       if (parenDepth === 1) segmentStart = i + 1;
@@ -259,6 +252,7 @@ const inferLeadingParameterType = (before: string): string | undefined => {
     }
     if (parenDepth >= 1) typeDepth = updateTypeDepth(typeDepth, token.value);
   }
+  if (segmentStart < 0) return undefined;
   const segment = tokens.slice(segmentStart);
   return leadingTypeOf(segment);
 };
@@ -296,20 +290,6 @@ const leadingTypeTextFromTokens = (tokens: readonly Token[]): string | undefined
   for (let length = candidates.length; length > 0; length -= 1) {
     const source = candidates.slice(0, length).join(" ");
     const parsed = parseLlvmType(source);
-    const formatted = formatLlvmType(parsed.type);
-    if (formatted && parsed.diagnostics.length === 0) return formatted;
-  }
-  return undefined;
-};
-
-/** 識別子直前の文字列断片末尾から、型パーサが読める型だけを取り出す。 */
-const trailingTypeText = (source: string): string | undefined => {
-  const tokens = tokenize(source).filter(
-    (token) => token.kind !== "Eof" && token.kind !== "Comment",
-  );
-  const candidates = candidateTypeTexts(tokens);
-  for (let start = Math.max(0, candidates.length - 8); start < candidates.length; start += 1) {
-    const parsed = parseLlvmType(candidates.slice(start).join(" "));
     const formatted = formatLlvmType(parsed.type);
     if (formatted && parsed.diagnostics.length === 0) return formatted;
   }

@@ -36,14 +36,14 @@ export const collectFileReferenceCandidates = (
   for (const entry of ast.entries) {
     while (
       tokenIndex < tokens.length &&
-      (tokens[tokenIndex]?.range.start.offset ?? source.length) < entry.range.start.offset
+      tokens[tokenIndex]!.range.start.offset < entry.range.start.offset
     ) {
       tokenIndex += 1;
     }
     let entryEnd = tokenIndex;
     while (
       entryEnd < tokens.length &&
-      (tokens[entryEnd]?.range.end.offset ?? source.length + 1) <= entry.range.end.offset
+      tokens[entryEnd]!.range.end.offset <= entry.range.end.offset
     ) {
       entryEnd += 1;
     }
@@ -94,7 +94,7 @@ const namedString = (tokens: readonly Token[], name: string): Token | undefined 
 };
 
 const decodeLlvmString = (value: string): string => {
-  const inner = value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+  const inner = value.slice(1, value.endsWith('"') ? -1 : undefined);
   return inner.replace(/\\([0-9A-Fa-f]{2}|[\\"])/gu, (_match, escaped: string) => {
     if (/^[0-9A-Fa-f]{2}$/u.test(escaped)) {
       return String.fromCharCode(Number.parseInt(escaped, 16));

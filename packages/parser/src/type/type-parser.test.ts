@@ -4,18 +4,21 @@ import { formatLlvmType, parseLlvmType } from "./type-parser.ts";
 
 describe("parseLlvmType", () => {
   it.each([
-    ["void", { kind: "VoidType" }],
-    ["label", { kind: "LabelType" }],
-    ["metadata", { kind: "MetadataType" }],
-    ["token", { kind: "TokenType" }],
-    ["i32", { kind: "IntegerType", bits: 32 }],
-    ["b128", { kind: "ByteType", bits: 128 }],
-    ["double", { kind: "FloatingPointType", name: "double" }],
-    ["%Point", { kind: "NamedType", name: "%Point" }],
-    ['%"quoted.type"', { kind: "NamedType", name: '%"quoted.type"' }],
-  ])("%s を scalar / named type として読む", (source, expected) => {
-    expect(parseLlvmType(source).type).toMatchObject(expected);
-    expect(parseLlvmType(source).diagnostics).toEqual([]);
+    ["void", { kind: "VoidType" }, "void"],
+    ["label", { kind: "LabelType" }, "label"],
+    ["metadata", { kind: "MetadataType" }, "metadata"],
+    ["token", { kind: "TokenType" }, "token"],
+    ["i32", { kind: "IntegerType", bits: 32 }, "i32"],
+    ["b128", { kind: "ByteType", bits: 128 }, "b128"],
+    ["double", { kind: "FloatingPointType", name: "double" }, "double"],
+    ["%Point", { kind: "NamedType", name: "%Point" }, "%Point"],
+    ['%"quoted.type"', { kind: "NamedType", name: '%"quoted.type"' }, '%"quoted.type"'],
+  ])("%s を scalar / named type として読む", (source, expected, printed) => {
+    const result = parseLlvmType(source);
+
+    expect(result.type).toMatchObject(expected);
+    expect(result.diagnostics).toEqual([]);
+    expect(formatLlvmType(result.type)).toBe(printed);
   });
 
   it.each([
@@ -63,6 +66,7 @@ describe("parseLlvmType", () => {
     ["i32,", "型の末尾に余分なトークンがあります"],
     ["ptr addrspace()", "addrspace の番号が必要です"],
     ["[x i32]", "配列要素数が必要です"],
+    ["<x i32>", "ベクトル要素数が必要です"],
     ["{ i32, }", "要素型が必要です"],
     ["i32 (ptr, i8", "`)` が必要です"],
     ["void (ptr,)", "要素型が必要です"],

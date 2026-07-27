@@ -153,6 +153,22 @@ describe("getDocumentLinks", () => {
     expect(links.map((link) => link.target)).toEqual(["file:///workspace/main.c"]);
   });
 
+  it("非 file URI かつ workspace folder がない場合はリンク化しない", async () => {
+    const snapshot = makeDocumentSnapshot("untitled:out.ll", 'source_filename = "main.c"\n');
+    let calls = 0;
+
+    const links = await getDocumentLinks(snapshot, {
+      workspaceFolderUris: [],
+      fileExists: async () => {
+        calls += 1;
+        return true;
+      },
+    });
+
+    expect(links).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
   it("同じ解決候補の存在確認を重複して実行しない", async () => {
     const snapshot = makeDocumentSnapshot(
       "file:///workspace/out.ll",

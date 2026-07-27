@@ -173,4 +173,20 @@ describe("Control Flow Graph", () => {
       }),
     ).toContain('block_0["quote\\"label"]');
   });
+
+  it("存在しないブロックを指す辺は Mermaid に出力しない", () => {
+    const range = {
+      start: { offset: 0, line: 0, column: 0 },
+      end: { offset: 0, line: 0, column: 0 },
+    };
+
+    expect(
+      formatControlFlowGraphAsMermaid({
+        functionName: "@f",
+        range,
+        blocks: [{ name: "entry", range }],
+        edges: [{ from: "entry", to: "missing", range }],
+      }),
+    ).toBe(["flowchart TD", '  block_0["entry"]'].join("\n"));
+  });
 });

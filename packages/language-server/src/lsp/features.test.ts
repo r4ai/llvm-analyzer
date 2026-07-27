@@ -107,6 +107,14 @@ describe("LSP 機能アダプタ", () => {
     expect(getReferences(snapshot, { line: 4, character: 18 })).toHaveLength(2);
   });
 
+  it("未解決位置の definition・references・rename は変更を返さない", () => {
+    const position = { line: 0, character: 0 };
+
+    expect(getDefinition(snapshot, position)).toBeUndefined();
+    expect(getReferences(snapshot, position)).toEqual([]);
+    expect(getRenameEdit(snapshot, position, "renamed")).toBeUndefined();
+  });
+
   it("documentSymbol は関数配下のローカル定義を含む", () => {
     const symbols = getDocumentSymbols(snapshot);
 
@@ -362,6 +370,11 @@ describe("LSP 機能アダプタ", () => {
     expect(markdownValue(hover?.contents)).not.toContain("Adds integer");
   });
 
+  it("hover は空白と説明のない記号では何も返さない", () => {
+    expect(getHover(snapshot, { line: 1, character: 2 })).toBeUndefined();
+    expect(getHover(snapshot, { line: 1, character: 3 })).toBeUndefined();
+  });
+
   it("references は includeDeclaration=false で定義位置を除外する", () => {
     expect(
       getReferences(snapshot, { line: 7, character: 11 }, { includeDeclaration: false }).map(
@@ -422,6 +435,11 @@ describe("LSP 機能アダプタ", () => {
     expect(normalizeInlayHintSettings({ types: { enabled: "yes" } })).toEqual(
       defaultInlayHintSettings,
     );
+    expect(normalizeInlayHintSettings({ types: { enabled: false } })).toEqual({
+      types: { enabled: false },
+    });
+    expect(normalizeInlayHintSettings({ types: null })).toEqual(defaultInlayHintSettings);
+    expect(normalizeInlayHintSettings(null)).toEqual(defaultInlayHintSettings);
     expect(inlayHintProviderCapability).toBe(true);
   });
 
@@ -442,6 +460,15 @@ describe("LSP 機能アダプタ", () => {
       },
     ]);
     expect(formattingProviderCapability).toBe(true);
+  });
+
+  it("formatting は変更不要なドキュメントに edit を返さない", () => {
+    const formatted = makeDocumentSnapshot(
+      "file:///formatted.ll",
+      ["define void @f() {", "entry:", "  ret void", "}"].join("\n"),
+    );
+
+    expect(getFormattingEdits(formatted)).toEqual([]);
   });
 
   it("rangeFormatting は指定行範囲だけを置き換える", () => {
@@ -696,6 +723,74 @@ describe("LSP 機能アダプタ", () => {
         },
         getDiagnostics(broken),
       ),
+    ).toEqual([]);
+  });
+
+  it("codeAction は近い候補が複数なら編集距離が最小の名前を選ぶ", () => {
+    const broken = makeDocumentSnapshot(
+      "file:///quickfix-nearest.ll",
+      [
+        "@print = global i32 0",
+        "@point = global i32 0",
+        "define void @f() {",
+        "  call void @pront()",
+        "  ret void",
+        "}",
+      ].join("\n"),
+    );
+
+    expect(
+      getCodeActions(
+        broken,
+        {
+          start: { line: 3, character: 12 },
+          end: { line: 3, character: 18 },
+        },
+        getDiagnostics(broken),
+      )[0]?.title,
+    ).toBe("`@pront` を `@print` に置換");
+  });
+
+  it("codeAction は関数外のラベル参照に候補を返さない", () => {
+    const broken = makeDocumentSnapshot("file:///quickfix-no-function.ll", "br label %missing");
+
+    expect(
+      getCodeActions(
+        broken,
+        {
+          start: { line: 0, character: 9 },
+          end: { line: 0, character: 17 },
+        },
+        getDiagnostics(broken),
+      ),
+    ).toEqual([]);
+  });
+
+  it("codeAction は sigil のない未定義名と未知コードを無視する", () => {
+    const plain = makeDocumentSnapshot("file:///quickfix-plain.ll", "plain");
+    const range = {
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 5 },
+    };
+
+    expect(
+      getCodeActions(plain, range, [
+        {
+          range,
+          message: "plain",
+          source: "llvm-analyzer",
+          code: "undefined-reference",
+        },
+        {
+          range: {
+            start: { line: 0, character: 2 },
+            end: { line: 0, character: 2 },
+          },
+          message: "unknown",
+          source: "llvm-analyzer",
+          code: "unknown",
+        },
+      ]),
     ).toEqual([]);
   });
 

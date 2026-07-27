@@ -62,6 +62,51 @@ const TOKEN_MODIFIER_INDEX = new Map(
   semanticTokenLegend.tokenModifiers.map((modifier, index) => [modifier, index]),
 );
 
+const LSP_SYMBOL_KINDS: Readonly<Record<SymbolKind, LspSymbolKind>> = {
+  attributeGroup: LspSymbolKind.Namespace,
+  comdat: LspSymbolKind.Namespace,
+  function: LspSymbolKind.Function,
+  global: LspSymbolKind.Variable,
+  label: LspSymbolKind.Key,
+  local: LspSymbolKind.Variable,
+  metadata: LspSymbolKind.Object,
+  parameter: LspSymbolKind.Constant,
+  type: LspSymbolKind.Struct,
+};
+
+const COMPLETION_KINDS: Readonly<Record<SymbolKind, CompletionItemKind>> = {
+  attributeGroup: CompletionItemKind.Reference,
+  comdat: CompletionItemKind.Reference,
+  function: CompletionItemKind.Function,
+  global: CompletionItemKind.Reference,
+  label: CompletionItemKind.Reference,
+  local: CompletionItemKind.Variable,
+  metadata: CompletionItemKind.Reference,
+  parameter: CompletionItemKind.Variable,
+  type: CompletionItemKind.Struct,
+};
+
+const SEMANTIC_TOKEN_TYPES: Readonly<Record<SymbolKind, string>> = {
+  attributeGroup: "namespace",
+  comdat: "namespace",
+  function: "function",
+  global: "variable",
+  label: "label",
+  local: "variable",
+  metadata: "namespace",
+  parameter: "parameter",
+  type: "type",
+};
+
+const PARSE_DIAGNOSTIC_SEVERITIES: Readonly<
+  Record<ParseDiagnostic["severity"], DiagnosticSeverity>
+> = {
+  error: DiagnosticSeverity.Error,
+  warning: DiagnosticSeverity.Warning,
+};
+
+const ANALYZER_DIAGNOSTIC_SEVERITIES = PARSE_DIAGNOSTIC_SEVERITIES;
+
 const KEYWORD_COMPLETIONS = [
   "define",
   "declare",
@@ -192,12 +237,12 @@ export const getReferences = (
 export const getDocumentSymbols = (snapshot: DocumentSnapshot): DocumentSymbol[] =>
   snapshot.model.documentSymbols().map((symbol) => ({
     name: symbol.name,
-    kind: toLspSymbolKind(symbol.kind),
+    kind: LSP_SYMBOL_KINDS[symbol.kind],
     range: toLspRange(symbol.range),
     selectionRange: toLspRange(symbol.selectionRange),
     children: symbol.children?.map((child) => ({
       name: child.name,
-      kind: toLspSymbolKind(child.kind),
+      kind: LSP_SYMBOL_KINDS[child.kind],
       range: toLspRange(child.range),
       selectionRange: toLspRange(child.selectionRange),
     })),
@@ -214,8 +259,7 @@ export const getDiagnostics = (
       ...snapshot.model.diagnostics().map((diagnostic) => ({
         range: toLspRange(diagnostic.range),
         message: diagnostic.message,
-        severity:
-          diagnostic.severity === "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
+        severity: ANALYZER_DIAGNOSTIC_SEVERITIES[diagnostic.severity],
         source: "llvm-analyzer",
         code: diagnostic.code,
       })),
@@ -230,7 +274,7 @@ export const getCompletionItems = (
 ): CompletionItem[] => [
   ...completionSymbols(snapshot, position).map((symbol) => ({
     label: symbol.name,
-    kind: completionKindOf(symbol.kind),
+    kind: COMPLETION_KINDS[symbol.kind],
     detail: symbol.type ? `${symbol.kind}: ${symbol.type}` : symbol.kind,
   })),
   ...KEYWORD_COMPLETIONS.map((keyword) => ({
@@ -281,8 +325,8 @@ export const getSemanticTokens = (snapshot: DocumentSnapshot): SemanticTokens =>
     const start = item.ref.range.start;
     const lineDelta = start.line - prevLine;
     const charDelta = lineDelta === 0 ? start.column - prevChar : start.column;
-    const tokenType = TOKEN_TYPE_INDEX.get(tokenTypeOf(item.symbol.kind)) ?? 1;
-    const modifiers = item.isDefinition ? 1 << (TOKEN_MODIFIER_INDEX.get("definition") ?? 0) : 0;
+    const tokenType = TOKEN_TYPE_INDEX.get(SEMANTIC_TOKEN_TYPES[item.symbol.kind])!;
+    const modifiers = item.isDefinition ? 1 << TOKEN_MODIFIER_INDEX.get("definition")! : 0;
     data.push(lineDelta, charDelta, item.ref.range.end.column - start.column, tokenType, modifiers);
     prevLine = start.line;
     prevChar = start.column;
@@ -495,14 +539,14 @@ const editDistance = (left: string, right: string): number => {
     for (let column = 1; column <= right.length; column += 1) {
       const cost = left[row - 1] === right[column - 1] ? 0 : 1;
       current[column] = Math.min(
-        (current[column - 1] ?? 0) + 1,
-        (previous[column] ?? 0) + 1,
-        (previous[column - 1] ?? 0) + cost,
+        current[column - 1]! + 1,
+        previous[column]! + 1,
+        previous[column - 1]! + cost,
       );
     }
     previous.splice(0, previous.length, ...current);
   }
-  return previous[right.length] ?? 0;
+  return previous[right.length]!;
 };
 
 const replacementText = (
@@ -520,14 +564,15 @@ const clamp = (value: number, min: number, max: number): number =>
 const positionInRange = (position: Range["end"], range: LspRange): boolean =>
   comparePosition(position, range.start) >= 0 && comparePosition(position, range.end) <= 0;
 
-const comparePosition = (
-  left: { readonly line: number; readonly character?: number; readonly column?: number },
-  right: { readonly line: number; readonly character?: number; readonly column?: number },
-): number => {
-  const leftCharacter = left.character ?? left.column ?? 0;
-  const rightCharacter = right.character ?? right.column ?? 0;
+type ComparablePosition = { readonly line: number } & (
+  | { readonly character: number }
+  | { readonly column: number }
+);
+
+const comparePosition = (left: ComparablePosition, right: LspPosition): number => {
+  const leftCharacter = "character" in left ? left.character : left.column;
   if (left.line !== right.line) return left.line - right.line;
-  return leftCharacter - rightCharacter;
+  return leftCharacter - right.character;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -550,8 +595,8 @@ const symbolOccurrenceAt = (
   if (!symbol) return undefined;
   const ref = snapshot.model
     .referencesOf(symbol.id)
-    .find((candidate) => containsRange(candidate.range, parserPosition));
-  return ref ? { symbol, ref } : undefined;
+    .find((candidate) => containsRange(candidate.range, parserPosition))!;
+  return { symbol, ref };
 };
 
 const symbolHoverMarkdown = (snapshot: DocumentSnapshot, symbol: SemanticSymbol): string => {
@@ -559,9 +604,7 @@ const symbolHoverMarkdown = (snapshot: DocumentSnapshot, symbol: SemanticSymbol)
   if (symbol.type) lines.push(`| Type | \`${symbol.type}\` |`);
   if (symbol.scopeName !== "module") lines.push(`| Scope | \`${symbol.scopeName}\` |`);
   const sourceLine = sourceLineAt(snapshot, symbol.definition.range.start.line).trim();
-  if (sourceLine) {
-    lines.push("", `${symbolHoverContextLabel(symbol)}:`, "```llvm", sourceLine, "```");
-  }
+  lines.push("", `${symbolHoverContextLabel(symbol)}:`, "```llvm", sourceLine, "```");
   return lines.join("\n");
 };
 
@@ -641,64 +684,9 @@ const toLspRange = (range: Range): LspRange => ({
 const fromParseDiagnostic = (diagnostic: ParseDiagnostic): Diagnostic => ({
   range: toLspRange(diagnostic.range),
   message: diagnostic.message,
-  severity: diagnostic.severity === "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
+  severity: PARSE_DIAGNOSTIC_SEVERITIES[diagnostic.severity],
   source: "llvm-parser",
 });
-
-const toLspSymbolKind = (kind: SymbolKind): LspSymbolKind => {
-  switch (kind) {
-    case "function":
-      return LspSymbolKind.Function;
-    case "global":
-      return LspSymbolKind.Variable;
-    case "type":
-      return LspSymbolKind.Struct;
-    case "parameter":
-      return LspSymbolKind.Constant;
-    case "local":
-      return LspSymbolKind.Variable;
-    case "label":
-      return LspSymbolKind.Key;
-    case "metadata":
-      return LspSymbolKind.Object;
-    case "attributeGroup":
-    case "comdat":
-      return LspSymbolKind.Namespace;
-  }
-};
-
-const completionKindOf = (kind: SymbolKind): CompletionItemKind => {
-  switch (kind) {
-    case "function":
-      return CompletionItemKind.Function;
-    case "type":
-      return CompletionItemKind.Struct;
-    case "parameter":
-    case "local":
-      return CompletionItemKind.Variable;
-    default:
-      return CompletionItemKind.Reference;
-  }
-};
-
-const tokenTypeOf = (kind: SymbolKind): string => {
-  switch (kind) {
-    case "function":
-      return "function";
-    case "type":
-      return "type";
-    case "parameter":
-      return "parameter";
-    case "label":
-      return "label";
-    case "metadata":
-    case "attributeGroup":
-    case "comdat":
-      return "namespace";
-    default:
-      return "variable";
-  }
-};
 
 const normalizeRenameForRef = (
   symbol: SemanticSymbol,
@@ -709,8 +697,7 @@ const normalizeRenameForRef = (
     const bareName = stripLeadingSigil(newName);
     return sameRange(ref.range, symbol.definition.range) ? bareName : `%${bareName}`;
   }
-  const sigil = symbol.name.match(/^[@%!#$]/u)?.[0];
-  if (!sigil) return newName;
+  const sigil = symbol.name.match(/^[@%!#$]/u)![0];
   if (newName.startsWith(sigil)) return newName;
   return `${sigil}${stripLeadingSigil(newName)}`;
 };
@@ -720,10 +707,5 @@ const stripLeadingSigil = (name: string): string => name.replace(/^[@%!#$]/u, ""
 const sameRange = (a: Range, b: Range): boolean =>
   a.start.offset === b.start.offset && a.end.offset === b.end.offset;
 
-const containsRange = (
-  range: Range,
-  position: { readonly offset: number; readonly line: number },
-): boolean =>
-  (position.offset > range.start.offset ||
-    (position.offset === range.start.offset && position.line >= range.start.line)) &&
-  position.offset < range.end.offset;
+const containsRange = (range: Range, position: { readonly offset: number }): boolean =>
+  position.offset >= range.start.offset && position.offset < range.end.offset;

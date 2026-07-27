@@ -20,6 +20,12 @@ export default defineConfig({
         "packages/vscode-extension/src/extension.ts",
       ],
       reporter: ["text", "html"],
+      thresholds: {
+        branches: 100,
+        functions: 100,
+        lines: 100,
+        statements: 100,
+      },
     },
   },
 });

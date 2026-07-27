@@ -195,6 +195,16 @@ describe("runExternalVerifier", () => {
     expect(received).toBe(controller.signal);
   });
 
+  it("runner 未指定時は設定されたコマンドを子プロセスで実行する", async () => {
+    const diagnostics = await runExternalVerifier(documentOf("define void @f() {}\n"), {
+      ...defaultVerifierSettings,
+      command: process.execPath,
+      args: ["-e", "process.stdin.resume(); process.stdin.on('end', () => process.exit(0));"],
+    });
+
+    expect(diagnostics).toEqual([]);
+  });
+
   it("nodeVerifierProcessRunner は stdout / stderr / exit code を収集する", async () => {
     const result = await nodeVerifierProcessRunner({
       command: process.execPath,
