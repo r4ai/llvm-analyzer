@@ -118,6 +118,7 @@ sequenceDiagram
 | `pnpm typecheck`                              | 各 workspace package の型検査。               |
 | `pnpm test`                                   | parser、analyzer、language-server の Vitest。 |
 | `pnpm test:coverage`                          | Vitest とカバレッジ計測。                     |
+| `pnpm benchmark:large-ir -- --check`          | 初回解析と差分編集後の性能回帰検査。          |
 | `pnpm build`                                  | workspace 全体の build。                      |
 | `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host 経由の E2E。            |
 

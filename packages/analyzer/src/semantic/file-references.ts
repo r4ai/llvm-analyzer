@@ -31,9 +31,25 @@ export const collectFileReferenceCandidates = (
 ): FileReferenceCandidate[] => {
   const tokens = tokenize(source).filter((token) => token.kind !== "Eof");
   const candidates: FileReferenceCandidate[] = [];
+  let tokenIndex = 0;
 
   for (const entry of ast.entries) {
-    const entryTokens = tokensInRange(tokens, entry.range);
+    while (
+      tokenIndex < tokens.length &&
+      (tokens[tokenIndex]?.range.start.offset ?? source.length) < entry.range.start.offset
+    ) {
+      tokenIndex += 1;
+    }
+    let entryEnd = tokenIndex;
+    while (
+      entryEnd < tokens.length &&
+      (tokens[entryEnd]?.range.end.offset ?? source.length + 1) <= entry.range.end.offset
+    ) {
+      entryEnd += 1;
+    }
+    const entryTokens = tokens.slice(tokenIndex, entryEnd);
+    tokenIndex = entryEnd;
+
     if (entry.kind === "SourceFilename") {
       const filename = entryTokens.find((token) => token.kind === "String");
       if (!filename) continue;
@@ -63,12 +79,6 @@ export const collectFileReferenceCandidates = (
 
   return candidates;
 };
-
-const tokensInRange = (tokens: readonly Token[], range: Range): Token[] =>
-  tokens.filter(
-    (token) =>
-      token.range.start.offset >= range.start.offset && token.range.end.offset <= range.end.offset,
-  );
 
 const hasDiFileTag = (tokens: readonly Token[]): boolean =>
   tokens.some((token) => token.value === "!DIFile");

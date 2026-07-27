@@ -52,26 +52,27 @@ pnpm --filter llvm-analyzer-vscode package
 
 ## コマンド
 
-| コマンド                                      | 用途                                                                                |
-| --------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `pnpm lint`                                   | oxlint を実行する。                                                                 |
-| `pnpm format`                                 | oxfmt の check を実行する。                                                         |
-| `pnpm typecheck`                              | TypeScript の型検査を実行する。                                                     |
-| `pnpm test`                                   | Vitest を実行する。                                                                 |
-| `pnpm test:coverage`                          | Vitest とカバレッジ計測を実行する。                                                 |
-| `pnpm build`                                  | workspace 全体の build を実行する。                                                 |
-| `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host で fixture workspace を開き、主要 LSP 経路の E2E を実行する。 |
-| `pnpm --filter llvm-analyzer-vscode package`  | VSCode 拡張機能の `.vsix` を作成する。                                              |
+| コマンド                                      | 用途                                                                                 |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `pnpm lint`                                   | oxlint を実行する。                                                                  |
+| `pnpm format`                                 | oxfmt の check を実行する。                                                          |
+| `pnpm typecheck`                              | TypeScript の型検査を実行する。                                                      |
+| `pnpm test`                                   | Vitest を実行する。                                                                  |
+| `pnpm test:coverage`                          | Vitest とカバレッジ計測を実行する。                                                  |
+| `pnpm benchmark:large-ir -- --check`          | 巨大IRの初回解析と差分編集後の再解析について、入力増加率に対する性能回帰を検査する。 |
+| `pnpm build`                                  | workspace 全体の build を実行する。                                                  |
+| `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host で fixture workspace を開き、主要 LSP 経路の E2E を実行する。  |
+| `pnpm --filter llvm-analyzer-vscode package`  | VSCode 拡張機能の `.vsix` を作成する。                                               |
 
 ## CI とサプライチェーン対策
 
-| 対象                | 対策                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------ |
-| 依存解決            | CI とローカル導入で `--frozen-lockfile` を使う。                                           |
-| 公開直後の依存      | pnpm の `minimumReleaseAge` で、公開直後の依存バージョンをすぐ取り込まない。               |
-| 依存の build script | pnpm の `allowBuilds` で、許可した依存だけにビルドスクリプト実行を認める。                 |
-| GitHub Actions      | [pinact](https://github.com/suzuki-shunsuke/pinact) で `uses:` をコミット SHA に固定する。 |
-| CI 検査             | Devbox 上で lint、format、typecheck、test、build、`pinact run --check` を実行する。        |
+| 対象                | 対策                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| 依存解決            | CI とローカル導入で `--frozen-lockfile` を使う。                                                        |
+| 公開直後の依存      | pnpm の `minimumReleaseAge` で、公開直後の依存バージョンをすぐ取り込まない。                            |
+| 依存の build script | pnpm の `allowBuilds` で、許可した依存だけにビルドスクリプト実行を認める。                              |
+| GitHub Actions      | [pinact](https://github.com/suzuki-shunsuke/pinact) で `uses:` をコミット SHA に固定する。              |
+| CI 検査             | Devbox 上で lint、format、typecheck、test、巨大IRベンチマーク、build、`pinact run --check` を実行する。 |
 
 ## リリース管理
 
