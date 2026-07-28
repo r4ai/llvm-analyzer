@@ -241,7 +241,6 @@ export const updateDocumentSnapshot = (
 
 const createSnapshot = (snapshot: DocumentSnapshot): DocumentSnapshot => {
   snapshot.document.positionAt(snapshot.text.length);
-  replacementNameIndex(snapshot);
   return snapshot;
 };
 

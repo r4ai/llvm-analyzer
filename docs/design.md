@@ -66,6 +66,8 @@ parser/analyzer は `vscode*` に一切依存しない。
 - **診断**: 未定義値の参照、重複定義、同一命令内の自己参照、終端命令後の通常命令など（LLVM verifier 全体は再実装しない）。metadata attachment key、関数宣言の引数名、関数スコープの use-list order directive など、LangRef 上の非参照・非命令は誤診断しない。language-server で parser の構文診断とマージし、parser / analyzer / external verifier ごとに有効化と severity を適用する。
 - **診断コード（予定）**: Code Action の土台として、修正候補を返せる診断には stable code を付与する。自動修正は意味を変えない置換や削除候補に限定し、危険な IR 生成は行わない。
 - **CFG / 呼び出し情報**: 関数単位で basic block successor と直接呼び出し先を抽出する。CFG は `br` / `switch` / `indirectbr` / `invoke` / `callbr` の `label %bb` から静的に分かる範囲を対象にし、間接分岐や関数ポインタの完全解決は行わない。Mermaid 出力は analyzer の純粋関数で生成する。
+  CFGは対象関数で最初に要求されたとき、直接呼び出し列はCall Hierarchy索引が最初に要求したときに構築する。
+  Definitionの必須解析では、これらの派生情報を構築しない。
 - **ファイル参照候補**: `source_filename` と `!DIFile(filename:, directory:)` から、エディタ上でリンク化できるファイルパス候補を抽出する。存在確認と URI 解決は language-server 側の副作用として分離し、コメント内 URL や任意文字列は対象にしない。リンク先は workspace folder または IR ファイルのディレクトリ配下に限定する。
   性能ゲートは5サンプルの中央値を使い、数msで完了する処理はウォームアップ後のバッチ平均から入力増加率を判定する。
   単発の一時停止を除外しても継続する超線形な増加は残るため、正規化増加率の閾値は緩めない。
@@ -75,16 +77,20 @@ parser/analyzer は `vscode*` に一切依存しない。
 ### language-server（アダプタ）
 
 - `vscode-languageserver/node` + `vscode-languageserver-textdocument`。VSCode 拡張から IPC で起動。
-- ドキュメント変更をデバウンスし、待機中の`contentChanges`をバージョン順に保持する。
+- ファイルを開いたときは中核snapshotを即時生成し、150 msの診断debounceを初回Definitionの前へ持ち込まない。
+  ドキュメント変更はデバウンスし、待機中の`contentChanges`をバージョン順に保持する。
   単一トップレベル要素の内側に収まる編集では、更新前の範囲と更新後の終端をparser sessionへ渡し、その要素だけを再パースする。
   要素境界をまたぐ編集や構造境界を検証できない編集は全体パースへ戻る。
   意味モデルはモジュールをまたぐ参照の整合性を保つため、線形時間で全体を再リンクする。
   診断、Workspace Symbols、Call Hierarchyは同じ不変スナップショットを共有し、一回の変更を機能ごとに再解析しない。
+  Workspace SymbolsとCall Hierarchyの派生索引は最新snapshotをURI単位で保留し、その索引を使う要求の直前にだけ更新する。
+  Definition、Hover、Referencesは派生索引の更新を待たない。
   Inlay Hintsは要求範囲でシンボルを絞ってから表示用型を推定する。
   Document Symbols、Semantic Tokens、Folding Ranges、Document Link候補は同じ不変スナップショット内で再利用する。
   Range Formattingは現在関数を索引で判定し、選択行の断片だけを整形する。
-  Workspace Symbolsは名前の三文字索引、Call Hierarchyはcallerとcalleeの索引を登録時に作る。
-  合成した巨大IRの初回解析、全体再構築、インクリメンタル更新、表示範囲の型問い合わせ、各LSP操作の初回時間と再要求時間、索引共有は `pnpm benchmark:large-ir -- --check` で検証する。
+  Workspace Symbolsは名前の三文字索引、Call Hierarchyはcallerとcalleeの索引を最初の利用時に作る。
+  Rename／Quick Fix用の置換候補索引も、そのアクションの最初の利用時に作る。
+  合成した巨大IRの初回解析、全体再構築、インクリメンタル更新、約6 MBの初回Definition、数値中心lexer、表示範囲の型問い合わせ、各LSP操作の初回時間と再要求時間、索引共有は `pnpm benchmark:large-ir -- --check` で検証する。
 - 外部 LLVM verifier は language-server の副作用として隔離する。即時診断は parser/analyzer が返し、`llvm-as` などの verifier は追加 debounce 後にバックグラウンド実行する。新しい編集が来たら古い結果は破棄し、実行中プロセスは中止する。
 - ワークスペース横断機能は language-server 側で `.ll` ファイルごとの解析結果を索引化し、parser/analyzer の純粋 API から得たシンボル・呼び出し・ファイル参照候補を LSP 形式へ変換する。
   初期の workspace symbol 索引は URI 単位で `DocumentSnapshot` を保持し、open document・workspace folder 初期走査・watched file events で更新する。

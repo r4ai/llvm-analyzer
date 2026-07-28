@@ -248,21 +248,45 @@ describe("tokenize: 数値", () => {
   });
 
   it("浮動小数（指数・先頭ドットを含む）", () => {
-    expect(kinds("3.14 -0.5 1.0e10 .5")).toEqual([
+    expect(kinds("3.14 -0.5 1.0e10 .5 +.25 1.")).toEqual([
       ["Number", "3.14"],
       ["Number", "-0.5"],
       ["Number", "1.0e10"],
       ["Number", ".5"],
+      ["Number", "+.25"],
+      ["Number", "1."],
+    ]);
+  });
+
+  it("数字のない指数部を数値へ含めない", () => {
+    expect(kinds("1e 2e+")).toEqual([
+      ["Number", "1"],
+      ["Identifier", "e"],
+      ["Number", "2"],
+      ["Identifier", "e"],
+      ["Unknown", "+"],
     ]);
   });
 
   it("16進・特殊float 0x...", () => {
-    expect(kinds("0x7f 0xK4000 s0x8000 u0x8000 0x1.8p+1")).toEqual([
+    expect(kinds("0x7f 0xK4000 s0x8000 u0x8000 0x1.8p+1 -0x1.8p+2")).toEqual([
       ["Number", "0x7f"],
       ["Number", "0xK4000"],
       ["Number", "s0x8000"],
       ["Number", "u0x8000"],
       ["Number", "0x1.8p+1"],
+      ["Number", "-0x1.8p+2"],
+    ]);
+  });
+
+  it("符号付き16進整数と不正な16進表現は10進接頭辞までをNumberにする", () => {
+    expect(kinds("-0x7f +0xK4000 0xZZ")).toEqual([
+      ["Number", "-0"],
+      ["Identifier", "x7f"],
+      ["Number", "+0"],
+      ["Identifier", "xK4000"],
+      ["Number", "0"],
+      ["Identifier", "xZZ"],
     ]);
   });
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   FileChangeType,
@@ -37,6 +38,7 @@ import {
   type InlayHintSettings,
 } from "./lsp/features.ts";
 import { CONTROL_FLOW_GRAPH_REQUEST, isControlFlowGraphRequestParams } from "./lsp/protocol.ts";
+import { SnapshotDerivedIndexes } from "./lsp/snapshot-derived-indexes.ts";
 import {
   defaultDiagnosticSettings,
   mergeVerifierDiagnostics,
@@ -57,6 +59,7 @@ const VERIFIER_CONFIG_SECTION = "llvm-analyzer.verifier";
 const DIAGNOSTICS_CONFIG_SECTION = "llvm-analyzer.diagnostics";
 const INLAY_HINTS_CONFIG_SECTION = "llvm-analyzer.inlayHints";
 const SKIPPED_WORKSPACE_DIRS = new Set([".git", "node_modules", "dist", "coverage"]);
+const WORKSPACE_INDEX_CONCURRENCY = 4;
 
 const connection = createConnection(ProposedFeatures.all);
 const documentChanges = new DocumentChangeJournal();
@@ -71,6 +74,7 @@ const documents = new TextDocuments<TextDocument>({
 const snapshots = new Map<string, DocumentSnapshot>();
 const callHierarchy = new CallHierarchyIndex();
 const workspaceSymbols = new WorkspaceSymbolIndex();
+const snapshotDerivedIndexes = new SnapshotDerivedIndexes(workspaceSymbols, callHierarchy);
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const verifierTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const verifierControllers = new Map<string, AbortController>();
@@ -102,10 +106,14 @@ connection.onDidChangeConfiguration(() => {
   }
 });
 
-documents.onDidOpen((event) => scheduleAnalysis(event.document));
+documents.onDidOpen((event) => {
+  analyzeDocument(event.document);
+  scheduleAnalysis(event.document);
+});
 documents.onDidChangeContent((event) => scheduleAnalysis(event.document));
 documents.onDidClose((event) => {
   snapshots.delete(event.document.uri);
+  snapshotDerivedIndexes.discard(event.document.uri);
   documentChanges.delete(event.document.uri);
   clearPending(event.document.uri);
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
@@ -116,6 +124,7 @@ connection.onDidChangeWatchedFiles((params) => {
   for (const change of params.changes) {
     if (!isLlFileUri(change.uri)) continue;
     if (change.type === FileChangeType.Deleted) {
+      snapshotDerivedIndexes.discard(change.uri);
       workspaceSymbols.delete(change.uri);
       callHierarchy.delete(change.uri);
       snapshots.delete(change.uri);
@@ -152,15 +161,25 @@ connection.onDocumentLinks((params) => {
     : [];
 });
 
-connection.onWorkspaceSymbol((params) => workspaceSymbols.search(params.query));
+connection.onWorkspaceSymbol((params) => {
+  snapshotDerivedIndexes.ensureAll();
+  return workspaceSymbols.search(params.query);
+});
 
-connection.languages.callHierarchy.onPrepare((params) =>
-  callHierarchy.prepare(params.textDocument.uri, params.position),
-);
+connection.languages.callHierarchy.onPrepare((params) => {
+  snapshotDerivedIndexes.ensure(params.textDocument.uri);
+  return callHierarchy.prepare(params.textDocument.uri, params.position);
+});
 
-connection.languages.callHierarchy.onIncomingCalls((params) => callHierarchy.incoming(params.item));
+connection.languages.callHierarchy.onIncomingCalls((params) => {
+  snapshotDerivedIndexes.ensureAll();
+  return callHierarchy.incoming(params.item);
+});
 
-connection.languages.callHierarchy.onOutgoingCalls((params) => callHierarchy.outgoing(params.item));
+connection.languages.callHierarchy.onOutgoingCalls((params) => {
+  snapshotDerivedIndexes.ensureAll();
+  return callHierarchy.outgoing(params.item);
+});
 
 connection.onCompletion((params) => {
   const snapshot = snapshotFor(params.textDocument.uri);
@@ -349,9 +368,10 @@ function snapshotFor(uri: string): DocumentSnapshot | undefined {
   return analyzeDocument(current);
 }
 
-/** 最新テキストを解析し、ドキュメント単位の全索引へ同じスナップショットを登録する。 */
+/** 最新テキストを解析し、派生索引への反映を要求時まで保留する。 */
 function analyzeDocument(document: TextDocument): DocumentSnapshot {
   const previous = snapshots.get(document.uri);
+  if (previous?.version === document.version) return previous;
   const text = document.getText();
   const snapshot =
     previous === undefined
@@ -364,8 +384,7 @@ function analyzeDocument(document: TextDocument): DocumentSnapshot {
         );
   snapshots.set(document.uri, snapshot);
   if (isLlFileUri(document.uri)) {
-    workspaceSymbols.upsertOpenSnapshot(snapshot);
-    callHierarchy.upsertSnapshot(snapshot);
+    snapshotDerivedIndexes.defer(snapshot);
   }
   return snapshot;
 }
@@ -382,7 +401,22 @@ async function indexWorkspaceFolder(folderUri: string): Promise<void> {
     return;
   }
   const filePaths = await collectLlFiles(rootPath);
-  await Promise.all(filePaths.map((filePath) => indexFile(pathToFileURL(filePath).toString())));
+  await indexWorkspaceFiles(filePaths);
+}
+
+/** ファイル読み込みを並行しつつ、各解析の前にLSP要求へ制御を返す。 */
+async function indexWorkspaceFiles(filePaths: readonly string[]): Promise<void> {
+  let nextIndex = 0;
+  const indexNext = async (): Promise<void> => {
+    const filePath = filePaths[nextIndex];
+    nextIndex += 1;
+    if (!filePath) return;
+    await yieldToEventLoop();
+    await indexFile(pathToFileURL(filePath).toString());
+    await indexNext();
+  };
+  const workerCount = Math.min(filePaths.length, WORKSPACE_INDEX_CONCURRENCY);
+  await Promise.all(Array.from({ length: workerCount }, indexNext));
 }
 
 async function collectLlFiles(dir: string): Promise<string[]> {
@@ -413,6 +447,7 @@ async function indexFile(uri: string): Promise<void> {
     }
     const text = await readFile(fileURLToPath(uri), "utf8");
     const snapshot = makeDocumentSnapshot(uri, text);
+    snapshotDerivedIndexes.discard(uri);
     workspaceSymbols.upsertSnapshot(snapshot);
     callHierarchy.upsertSnapshot(snapshot);
   } catch {
