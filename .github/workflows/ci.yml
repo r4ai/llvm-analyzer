@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,8 +28,65 @@ jobs:
       - run: devbox run -- pnpm format
       - run: devbox run -- pnpm typecheck
       - run: devbox run -- pnpm test
-      - run: devbox run -- pnpm benchmark:large-ir -- --check
       - run: devbox run -- pnpm build
+
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      LANG: C.UTF-8
+      TZ: UTC
+      UV_THREADPOOL_SIZE: "1"
+      NODE_OPTIONS: --max-old-space-size=4096
+      MALLOC_ARENA_MAX: "2"
+      LLVM_ANALYZER_BENCHMARK_CPU_AFFINITY: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 2
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: benchmark-baseline
+      - uses: jetify-com/devbox-install-action@8c6a66ed6273138b1915457069de78cb52fe3bd7 # v0.15.0
+        with:
+          devbox-version: 0.17.5
+      - run: devbox run -- pnpm install --frozen-lockfile
+      - if: github.event_name == 'pull_request'
+        working-directory: benchmark-baseline
+        run: devbox run -- pnpm install --frozen-lockfile
+      - name: Check scaling and latency contracts
+        run: |
+          mkdir -p benchmark-results
+          /usr/bin/taskset --cpu-list 0 devbox run -- pnpm benchmark:large-ir -- --check \
+            | tee benchmark-results/current.jsonl
+      - if: github.event_name == 'pull_request'
+        name: Compare pull request with base
+        run: |
+          /usr/bin/taskset --cpu-list 0 devbox run -- pnpm benchmark:compare -- \
+            --baseline benchmark-baseline \
+            --candidate . \
+            --rounds 3 \
+            --output benchmark-results \
+            --synchronize-harness \
+            --check
+      - if: github.event_name != 'pull_request'
+        name: Measure same-source stability
+        run: |
+          /usr/bin/taskset --cpu-list 0 devbox run -- pnpm benchmark:compare -- \
+            --baseline . \
+            --candidate . \
+            --rounds 3 \
+            --output benchmark-results
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: benchmark-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: benchmark-results
+          if-no-files-found: error
+          retention-days: 30
 
   actions-pinned:
     runs-on: ubuntu-24.04

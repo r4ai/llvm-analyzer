@@ -71,8 +71,9 @@ parser/analyzer は `vscode*` に一切依存しない。
   CFGは対象関数で最初に要求されたとき、直接呼び出し列はCall Hierarchy索引が最初に要求したときに構築する。
   Definitionの必須解析では、これらの派生情報を構築しない。
 - **ファイル参照候補**: `source_filename` と `!DIFile(filename:, directory:)` から、エディタ上でリンク化できるファイルパス候補を抽出する。存在確認と URI 解決は language-server 側の副作用として分離し、コメント内 URL や任意文字列は対象にしない。リンク先は workspace folder または IR ファイルのディレクトリ配下に限定する。
-  性能ゲートは5サンプルの中央値を使い、数msで完了する処理はウォームアップ後のバッチ平均から入力増加率を判定する。
-  単発の一時停止を除外しても継続する超線形な増加は残るため、正規化増加率の閾値は緩めない。
+  性能ゲートは9サンプルから開始し、一サンプルが100 ms以上になるように短時間処理の反復数を調整する。
+  入力の大小は先行順を交互にし、丸め前のペア比率から中央値、MAD、95%信頼区間を求める。
+  信頼区間全体が閾値を超えた場合だけ回帰と判定し、閾値をまたぐ場合は判定不能として成果物へ残す。
 - オペコード/型/属性のドキュメント辞書を持ち、Hover/Completion で再利用。
 - 公開API例: `analyze(ast, { source }): SemanticModel`、`SemanticModel.definitionAt(pos)` / `referencesOf(symbol)` / `symbolAt(pos)` / `documentSymbols()` / `diagnostics()`
 
@@ -93,6 +94,7 @@ parser/analyzer は `vscode*` に一切依存しない。
   Workspace Symbolsは名前の三文字索引、Call Hierarchyはcallerとcalleeの索引を最初の利用時に作る。
   Rename／Quick Fix用の置換候補索引も、そのアクションの最初の利用時に作る。
   合成した巨大IRの初回解析、全体再構築、インクリメンタル更新、約6 MBの初回Definition、数値中心lexer、表示範囲の型問い合わせ、各LSP操作の初回時間と再要求時間、索引共有は `pnpm benchmark:large-ir -- --check` で検証する。
+  pull requestではbaseと変更後を同じGitHub-hosted runnerへcheckoutし、`pnpm benchmark:compare`で実行順を交互にしたペア比較も行う。
 - 外部 LLVM verifier は language-server の副作用として隔離する。即時診断は parser/analyzer が返し、`llvm-as` などの verifier は追加 debounce 後にバックグラウンド実行する。新しい編集が来たら古い結果は破棄し、実行中プロセスは中止する。
 - ワークスペース横断機能は language-server 側で `.ll` ファイルごとの解析結果を索引化し、parser/analyzer の純粋 API から得たシンボル・呼び出し・ファイル参照候補を LSP 形式へ変換する。
   初期の workspace symbol 索引は URI 単位で `DocumentSnapshot` を保持し、open document・workspace folder 初期走査・watched file events で更新する。

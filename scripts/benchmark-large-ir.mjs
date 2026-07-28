@@ -1,3 +1,4 @@
+import os from "node:os";
 import { analyze, collectFileReferenceCandidates } from "../packages/analyzer/src/index.ts";
 import {
   getCodeActions,
@@ -21,7 +22,15 @@ import { getDiagnostics, getInlayHints } from "../packages/language-server/src/l
 import { SnapshotDerivedIndexes } from "../packages/language-server/src/lsp/snapshot-derived-indexes.ts";
 import { WorkspaceSymbolIndex } from "../packages/language-server/src/lsp/workspace-symbols.ts";
 import { parseModule, tokenize } from "../packages/parser/src/index.ts";
-import { measureMedianDuration } from "./stable-benchmark.mts";
+import {
+  classifyMaximum,
+  classifyMinimum,
+  measureAdaptiveAsyncDuration,
+  measureAdaptiveDuration,
+  measureAdaptivePairedDurations,
+  summarizePairedRatios,
+  summarizeSamples,
+} from "./stable-benchmark.mts";
 
 const SIZE_FACTOR = 4;
 const RECOVERY_SIZE_FACTOR = 16;
@@ -40,13 +49,19 @@ const MIN_SHARING_SPEEDUP = 1.2;
 const MIN_SHARING_SAVED_MS = 50;
 const MIN_DEFERRED_INDEX_SAVED_MS = 0.5;
 const INPUT_LINEAR_COLD_POINT_ACTIONS = new Set(["code-action", "document-links"]);
-const SAMPLES = 5;
-const FILE_REFERENCE_BENCHMARK = {
+const IS_COMPARISON_RUN = process.argv.includes("--comparison-run");
+const SAMPLES = IS_COMPARISON_RUN ? 3 : 9;
+const ADAPTIVE_BENCHMARK = {
   warmupIterations: 3,
-  iterationsPerSample: 25,
-  samples: 5,
+  minSampleDurationMs: IS_COMPARISON_RUN ? 25 : 100,
+  minSamples: IS_COMPARISON_RUN ? 3 : 9,
+  maxSamples: IS_COMPARISON_RUN ? 3 : 25,
+  maxRelativeMarginOfError: 0.1,
+  maxIterationsPerSample: 10_000,
 };
 const LSP_DOCUMENT_URI = "file:///benchmark-large-ir.ll";
+const benchmarkStartedAt = performance.now();
+const benchmarkCpuStartedAt = process.cpuUsage();
 
 const scenarios = [
   {
@@ -61,102 +76,134 @@ const scenarios = [
   },
 ];
 
-parseAndAnalyze(makeManyFunctions(10, 10));
+const warmupSource = makeManyFunctions(10, 10);
+analyze(parseModule(warmupSource).ast, { source: warmupSource });
 
 let failed = false;
+const inconclusiveScenarios = [];
 
-const [numericLexing, identifierLexing] = benchmarkLexingPair(
+const numericLexingPair = benchmarkLexingPair(
   makeNumericInstructions(8_000),
   makeIdentifierInstructions(8_000),
 );
-const numericLexingRatio = numericLexing.tokenizeMs / identifierLexing.tokenizeMs;
+const numericLexingRatio = numericLexingPair.ratio.statistics.median;
 console.log(
   JSON.stringify({
     scenario: "numeric-heavy-lexing",
-    numeric: numericLexing,
-    identifier: identifierLexing,
+    numeric: numericLexingPair.first,
+    identifier: numericLexingPair.second,
     ratio: round(numericLexingRatio),
+    ratioStatistics: numericLexingPair.ratio.statistics,
   }),
 );
-if (process.argv.includes("--check") && numericLexingRatio > MAX_NUMERIC_LEXING_RATIO) {
-  console.error(
-    `numeric-heavy-lexing: 数値中心IRの字句解析が同じトークン数の識別子中心IRに対して ${round(numericLexingRatio)} 倍かかりました`,
-  );
-  failed = true;
-}
+checkMaximum(
+  "numeric-heavy-lexing",
+  numericLexingPair.ratio.statistics,
+  MAX_NUMERIC_LEXING_RATIO,
+  `数値中心IRの字句解析が同じトークン数の識別子中心IRに対して ${round(numericLexingRatio)} 倍かかりました`,
+);
 
 for (const scenario of scenarios) {
-  const small = benchmark(scenario.makeSource(scenario.smallSize));
-  const large = benchmark(scenario.makeSource(scenario.smallSize * SIZE_FACTOR));
-  const normalizedGrowth = large.analyzeMs / small.analyzeMs / SIZE_FACTOR;
+  const benchmarkPair = benchmarkAnalysisPair(
+    scenario.makeSource(scenario.smallSize),
+    scenario.makeSource(scenario.smallSize * SIZE_FACTOR),
+  );
+  const normalizedGrowth = benchmarkPair.normalizedGrowth.statistics.median;
   console.log(
     JSON.stringify({
       scenario: scenario.name,
-      small,
-      large,
+      small: benchmarkPair.small,
+      large: benchmarkPair.large,
       normalizedGrowth: round(normalizedGrowth),
+      normalizedGrowthStatistics: benchmarkPair.normalizedGrowth.statistics,
     }),
   );
-  if (process.argv.includes("--check") && normalizedGrowth > MAX_NORMALIZED_GROWTH) {
-    console.error(
-      `${scenario.name}: 意味解析時間が入力倍率を正規化した上で ${round(normalizedGrowth)} 倍に増加しました`,
-    );
-    failed = true;
-  }
+  checkMaximum(
+    scenario.name,
+    benchmarkPair.normalizedGrowth.statistics,
+    MAX_NORMALIZED_GROWTH,
+    `意味解析時間が入力倍率を正規化した上で ${round(normalizedGrowth)} 倍に増加しました`,
+  );
 }
 
-const recoverySmall = benchmarkParse(makeWideRecoveryInstruction(500));
-const recoveryLarge = benchmarkParse(makeWideRecoveryInstruction(500 * RECOVERY_SIZE_FACTOR));
-const recoveryNormalizedGrowth =
-  recoveryLarge.parseMs / recoverySmall.parseMs / RECOVERY_SIZE_FACTOR;
+const recoveryPair = benchmarkParsePair(
+  makeWideRecoveryInstruction(500),
+  makeWideRecoveryInstruction(500 * RECOVERY_SIZE_FACTOR),
+  RECOVERY_SIZE_FACTOR,
+);
+const recoveryNormalizedGrowth = recoveryPair.normalizedGrowth.statistics.median;
 console.log(
   JSON.stringify({
     scenario: "wide-instruction-recovery",
-    small: recoverySmall,
-    large: recoveryLarge,
+    small: recoveryPair.small,
+    large: recoveryPair.large,
     normalizedGrowth: round(recoveryNormalizedGrowth),
+    normalizedGrowthStatistics: recoveryPair.normalizedGrowth.statistics,
   }),
 );
-if (process.argv.includes("--check") && recoveryNormalizedGrowth > MAX_NORMALIZED_GROWTH) {
-  console.error(
-    `wide-instruction-recovery: 構文解析時間が入力倍率を正規化した上で ${round(recoveryNormalizedGrowth)} 倍に増加しました`,
-  );
-  failed = true;
-}
+checkMaximum(
+  "wide-instruction-recovery",
+  recoveryPair.normalizedGrowth.statistics,
+  MAX_NORMALIZED_GROWTH,
+  `構文解析時間が入力倍率を正規化した上で ${round(recoveryNormalizedGrowth)} 倍に増加しました`,
+);
 
-const fileReferenceSmall = benchmarkFileReferences(makeManyFunctions(400, 1));
-const fileReferenceLarge = benchmarkFileReferences(makeManyFunctions(400 * SIZE_FACTOR, 1));
-const fileReferenceNormalizedGrowth =
-  fileReferenceLarge.fileReferencesMs /
-  Math.max(fileReferenceSmall.fileReferencesMs, 0.01) /
-  SIZE_FACTOR;
+const fileReferencePair = benchmarkFileReferencePair(
+  makeManyFunctions(400, 1),
+  makeManyFunctions(400 * SIZE_FACTOR, 1),
+);
+const fileReferenceNormalizedGrowth = fileReferencePair.normalizedGrowth.statistics.median;
 console.log(
   JSON.stringify({
     scenario: "file-references",
-    small: fileReferenceSmall,
-    large: fileReferenceLarge,
+    small: fileReferencePair.small,
+    large: fileReferencePair.large,
     normalizedGrowth: round(fileReferenceNormalizedGrowth),
+    normalizedGrowthStatistics: fileReferencePair.normalizedGrowth.statistics,
   }),
 );
-if (process.argv.includes("--check") && fileReferenceNormalizedGrowth > MAX_NORMALIZED_GROWTH) {
-  console.error(
-    `file-references: 抽出時間が入力倍率を正規化した上で ${round(fileReferenceNormalizedGrowth)} 倍に増加しました`,
-  );
-  failed = true;
-}
+checkMaximum(
+  "file-references",
+  fileReferencePair.normalizedGrowth.statistics,
+  MAX_NORMALIZED_GROWTH,
+  `抽出時間が入力倍率を正規化した上で ${round(fileReferenceNormalizedGrowth)} 倍に増加しました`,
+);
 
 const lifecycleSmall = benchmarkLspDocumentLifecycle(makeManyFunctions(400, 40));
 const lifecycleLarge = benchmarkLspDocumentLifecycle(makeManyFunctions(400 * SIZE_FACTOR, 40));
-const lifecycleNormalizedGrowth = {
-  initialLoad: lifecycleLarge.initialLoadMs / lifecycleSmall.initialLoadMs / SIZE_FACTOR,
-  fullRebuildEdit:
-    lifecycleLarge.fullRebuildEditMs / lifecycleSmall.fullRebuildEditMs / SIZE_FACTOR,
-  incrementalEdit:
-    lifecycleLarge.incrementalEditMs / lifecycleSmall.incrementalEditMs / SIZE_FACTOR,
-  visibleTypeQuery:
-    lifecycleLarge.visibleTypeQueryMs / lifecycleSmall.visibleTypeQueryMs / SIZE_FACTOR,
+const lifecycleNormalizedGrowthStatistics = {
+  initialLoad: summarizePairedRatios(
+    lifecycleSmall.statistics.initialLoadMs.samples,
+    lifecycleLarge.statistics.initialLoadMs.samples,
+    SIZE_FACTOR,
+  ),
+  fullRebuildEdit: summarizePairedRatios(
+    lifecycleSmall.statistics.fullRebuildEditMs.samples,
+    lifecycleLarge.statistics.fullRebuildEditMs.samples,
+    SIZE_FACTOR,
+  ),
+  incrementalEdit: summarizePairedRatios(
+    lifecycleSmall.statistics.incrementalEditMs.samples,
+    lifecycleLarge.statistics.incrementalEditMs.samples,
+    SIZE_FACTOR,
+  ),
+  visibleTypeQuery: summarizePairedRatios(
+    lifecycleSmall.statistics.visibleTypeQueryMs.samples,
+    lifecycleLarge.statistics.visibleTypeQueryMs.samples,
+    SIZE_FACTOR,
+  ),
 };
-const lifecycleSpeedup = lifecycleLarge.fullRebuildEditMs / lifecycleLarge.incrementalEditMs;
+const lifecycleNormalizedGrowth = {
+  initialLoad: lifecycleNormalizedGrowthStatistics.initialLoad.median,
+  fullRebuildEdit: lifecycleNormalizedGrowthStatistics.fullRebuildEdit.median,
+  incrementalEdit: lifecycleNormalizedGrowthStatistics.incrementalEdit.median,
+  visibleTypeQuery: lifecycleNormalizedGrowthStatistics.visibleTypeQuery.median,
+};
+const lifecycleSpeedupStatistics = summarizePairedRatios(
+  lifecycleLarge.statistics.incrementalEditMs.samples,
+  lifecycleLarge.statistics.fullRebuildEditMs.samples,
+);
+const lifecycleSpeedup = lifecycleSpeedupStatistics.median;
 console.log(
   JSON.stringify({
     scenario: "lsp-document-lifecycle",
@@ -168,74 +215,88 @@ console.log(
       incrementalEdit: round(lifecycleNormalizedGrowth.incrementalEdit),
       visibleTypeQuery: round(lifecycleNormalizedGrowth.visibleTypeQuery),
     },
+    normalizedGrowthStatistics: lifecycleNormalizedGrowthStatistics,
     incrementalSpeedup: round(lifecycleSpeedup),
+    incrementalSpeedupStatistics: lifecycleSpeedupStatistics,
   }),
 );
-if (
-  process.argv.includes("--check") &&
-  Object.values(lifecycleNormalizedGrowth).some((growth) => growth > MAX_NORMALIZED_GROWTH)
-) {
-  console.error(
-    `lsp-document-lifecycle: 入力倍率を正規化した増加率が initial-load=${round(lifecycleNormalizedGrowth.initialLoad)}, full-rebuild-edit=${round(lifecycleNormalizedGrowth.fullRebuildEdit)}, incremental-edit=${round(lifecycleNormalizedGrowth.incrementalEdit)}, visible-type-query=${round(lifecycleNormalizedGrowth.visibleTypeQuery)} になりました`,
+for (const [name, statistics] of Object.entries(lifecycleNormalizedGrowthStatistics)) {
+  checkMaximum(
+    `lsp-document-lifecycle.${name}`,
+    statistics,
+    MAX_NORMALIZED_GROWTH,
+    `入力倍率を正規化した${name}の増加率が ${round(statistics.median)} になりました`,
   );
-  failed = true;
 }
-if (process.argv.includes("--check") && lifecycleSpeedup < MIN_INCREMENTAL_SPEEDUP) {
-  console.error(
-    `lsp-document-lifecycle: インクリメンタル更新の高速化率が ${round(lifecycleSpeedup)} 倍に留まりました`,
-  );
-  failed = true;
-}
-if (process.argv.includes("--check") && lifecycleLarge.initialLoadMs > MAX_INITIAL_SNAPSHOT_MS) {
-  console.error(
-    `lsp-document-lifecycle: 巨大IRの初回snapshotとDefinitionが ${MAX_INITIAL_SNAPSHOT_MS} msを超えました: ${lifecycleLarge.initialLoadMs} ms`,
-  );
-  failed = true;
-}
-if (
-  process.argv.includes("--check") &&
-  lifecycleLarge.incrementalEditMs > MAX_INCREMENTAL_NAVIGATION_MS
-) {
-  console.error(
-    `lsp-document-lifecycle: 巨大IRの局所編集後snapshotとDefinitionが ${MAX_INCREMENTAL_NAVIGATION_MS} msを超えました: ${lifecycleLarge.incrementalEditMs} ms`,
-  );
-  failed = true;
-}
+checkMinimum(
+  "lsp-document-lifecycle.incremental-speedup",
+  lifecycleSpeedupStatistics,
+  MIN_INCREMENTAL_SPEEDUP,
+  `インクリメンタル更新の高速化率が ${round(lifecycleSpeedup)} 倍に留まりました`,
+);
+checkMaximum(
+  "lsp-document-lifecycle.initial-load",
+  lifecycleLarge.statistics.initialLoadMs,
+  MAX_INITIAL_SNAPSHOT_MS,
+  `巨大IRの初回snapshotとDefinitionが ${MAX_INITIAL_SNAPSHOT_MS} msを超えました: ${lifecycleLarge.initialLoadMs} ms`,
+);
+checkMaximum(
+  "lsp-document-lifecycle.incremental-edit",
+  lifecycleLarge.statistics.incrementalEditMs,
+  MAX_INCREMENTAL_NAVIGATION_MS,
+  `巨大IRの局所編集後snapshotとDefinitionが ${MAX_INCREMENTAL_NAVIGATION_MS} msを超えました: ${lifecycleLarge.incrementalEditMs} ms`,
+);
 
 const fanoutSmall = benchmarkOpenDocumentFanout(makeManyFunctions(400, 40));
 const fanoutLarge = benchmarkOpenDocumentFanout(makeManyFunctions(400 * SIZE_FACTOR, 40));
-const fanoutNormalizedGrowth =
-  fanoutLarge.sharedSnapshotMs / fanoutSmall.sharedSnapshotMs / SIZE_FACTOR;
-const sharingSpeedup = fanoutLarge.duplicatedAnalysisMs / fanoutLarge.sharedSnapshotMs;
-const sharingSavedMs = fanoutLarge.duplicatedAnalysisMs - fanoutLarge.sharedSnapshotMs;
+const fanoutNormalizedGrowthStatistics = summarizePairedRatios(
+  fanoutSmall.statistics.sharedSnapshotMs.samples,
+  fanoutLarge.statistics.sharedSnapshotMs.samples,
+  SIZE_FACTOR,
+);
+const sharingSpeedupStatistics = summarizePairedRatios(
+  fanoutLarge.statistics.sharedSnapshotMs.samples,
+  fanoutLarge.statistics.duplicatedAnalysisMs.samples,
+);
+const sharingSavedStatistics = summarizeSamples(
+  fanoutLarge.statistics.duplicatedAnalysisMs.samples.map(
+    (duplicated, index) => duplicated - fanoutLarge.statistics.sharedSnapshotMs.samples[index],
+  ),
+);
+const fanoutNormalizedGrowth = fanoutNormalizedGrowthStatistics.median;
+const sharingSpeedup = sharingSpeedupStatistics.median;
+const sharingSavedMs = sharingSavedStatistics.median;
 console.log(
   JSON.stringify({
     scenario: "open-document-index-fanout",
     small: fanoutSmall,
     large: fanoutLarge,
     normalizedGrowth: round(fanoutNormalizedGrowth),
+    normalizedGrowthStatistics: fanoutNormalizedGrowthStatistics,
     sharingSpeedup: round(sharingSpeedup),
+    sharingSpeedupStatistics,
     sharingSavedMs: round(sharingSavedMs),
+    sharingSavedStatistics,
   }),
 );
-if (process.argv.includes("--check") && fanoutNormalizedGrowth > MAX_NORMALIZED_GROWTH) {
-  console.error(
-    `open-document-index-fanout: 共有スナップショットの登録時間が入力倍率を正規化した上で ${round(fanoutNormalizedGrowth)} 倍に増加しました`,
-  );
-  failed = true;
-}
-if (process.argv.includes("--check") && sharingSpeedup < MIN_SHARING_SPEEDUP) {
-  console.error(
-    `open-document-index-fanout: 解析済みスナップショット共有の高速化率が ${round(sharingSpeedup)} 倍に留まりました`,
-  );
-  failed = true;
-}
-if (process.argv.includes("--check") && sharingSavedMs < MIN_SHARING_SAVED_MS) {
-  console.error(
-    `open-document-index-fanout: snapshot共有で省けた巨大IRの重複解析時間が ${round(sharingSavedMs)} msに留まりました`,
-  );
-  failed = true;
-}
+checkMaximum(
+  "open-document-index-fanout.normalized-growth",
+  fanoutNormalizedGrowthStatistics,
+  MAX_NORMALIZED_GROWTH,
+  `共有スナップショットの登録時間が入力倍率を正規化した上で ${round(fanoutNormalizedGrowth)} 倍に増加しました`,
+);
+checkMinimum(
+  "open-document-index-fanout.sharing-speedup",
+  sharingSpeedupStatistics,
+  MIN_SHARING_SPEEDUP,
+  `解析済みスナップショット共有の高速化率が ${round(sharingSpeedup)} 倍に留まりました`,
+);
+checkMinimum(
+  "open-document-index-fanout.saved-ms",
+  sharingSavedStatistics,
+  MIN_SHARING_SAVED_MS,
+  `snapshot共有で省けた巨大IRの重複解析時間が ${round(sharingSavedMs)} msに留まりました`,
+);
 
 const deferredNavigation = benchmarkDeferredNavigationIndexes(
   makeManyFunctions(400 * SIZE_FACTOR, 40),
@@ -246,35 +307,35 @@ console.log(
     ...deferredNavigation,
   }),
 );
-if (
-  process.argv.includes("--check") &&
-  deferredNavigation.savedFromNavigationMs < MIN_DEFERRED_INDEX_SAVED_MS
-) {
-  console.error(
-    `deferred-navigation-indexes: Definitionから分離した派生索引時間が ${MIN_DEFERRED_INDEX_SAVED_MS} ms未満でした: ${deferredNavigation.savedFromNavigationMs} ms`,
-  );
-  failed = true;
-}
+checkMinimum(
+  "deferred-navigation-indexes.saved-ms",
+  deferredNavigation.statistics.savedFromNavigationMs,
+  MIN_DEFERRED_INDEX_SAVED_MS,
+  `Definitionから分離した派生索引時間が ${MIN_DEFERRED_INDEX_SAVED_MS} ms未満でした: ${deferredNavigation.savedFromNavigationMs} ms`,
+);
 
-const extraLargeNavigation = benchmarkInitialNavigation(makeManyFunctions(6_400, 40));
-const extraLargeNormalizedGrowth =
-  extraLargeNavigation.initialNavigationMs / lifecycleLarge.initialLoadMs / SIZE_FACTOR;
+const extraLargeNavigation = benchmarkInitialNavigationPair(
+  makeManyFunctions(1_600, 40),
+  makeManyFunctions(6_400, 40),
+);
+const extraLargeNormalizedGrowth = extraLargeNavigation.normalizedGrowth.statistics.median;
 console.log(
   JSON.stringify({
     scenario: "extra-large-initial-navigation",
-    ...extraLargeNavigation,
+    small: extraLargeNavigation.small,
+    large: extraLargeNavigation.large,
+    bytes: extraLargeNavigation.large.bytes,
+    initialNavigationMs: extraLargeNavigation.large.initialNavigationMs,
     normalizedGrowth: round(extraLargeNormalizedGrowth),
+    normalizedGrowthStatistics: extraLargeNavigation.normalizedGrowth.statistics,
   }),
 );
-if (
-  process.argv.includes("--check") &&
-  extraLargeNormalizedGrowth > MAX_EXTRA_LARGE_NORMALIZED_GROWTH
-) {
-  console.error(
-    `extra-large-initial-navigation: 約6 MBの初回Definitionが入力4倍で正規化後 ${round(extraLargeNormalizedGrowth)} 倍に増加しました`,
-  );
-  failed = true;
-}
+checkMaximum(
+  "extra-large-initial-navigation",
+  extraLargeNavigation.normalizedGrowth.statistics,
+  MAX_EXTRA_LARGE_NORMALIZED_GROWTH,
+  `約6 MBの初回Definitionが入力4倍で正規化後 ${round(extraLargeNormalizedGrowth)} 倍に増加しました`,
+);
 
 const actionSmall = await benchmarkLanguageActions(400);
 const actionLarge = await benchmarkLanguageActions(400 * SIZE_FACTOR);
@@ -352,41 +413,90 @@ if (
   failed = true;
 }
 
+const benchmarkCpu = process.cpuUsage(benchmarkCpuStartedAt);
+console.log(
+  JSON.stringify({
+    scenario: "benchmark-metadata",
+    wallMs: round(performance.now() - benchmarkStartedAt),
+    cpuUserMs: round(benchmarkCpu.user / 1_000),
+    cpuSystemMs: round(benchmarkCpu.system / 1_000),
+    environment: {
+      platform: process.platform,
+      architecture: process.arch,
+      node: process.version,
+      v8: process.versions.v8,
+      cpuModel: os.cpus()[0]?.model ?? "unknown",
+      logicalCpuCount: os.cpus().length,
+      totalMemoryBytes: os.totalmem(),
+    },
+    inconclusiveScenarios,
+  }),
+);
 if (failed) process.exitCode = 1;
 
-function benchmark(source) {
-  const samples = Array.from({ length: SAMPLES }, () => parseAndAnalyze(source));
+function benchmarkAnalysisPair(smallSource, largeSource) {
+  const smallAst = parseModule(smallSource).ast;
+  const largeAst = parseModule(largeSource).ast;
+  const tokenizePair = measureAdaptivePairedDurations(
+    () => tokenize(smallSource),
+    () => tokenize(largeSource),
+    { ...ADAPTIVE_BENCHMARK, ratioNormalizer: SIZE_FACTOR },
+  );
+  const parsePair = measureAdaptivePairedDurations(
+    () => parseModule(smallSource),
+    () => parseModule(largeSource),
+    { ...ADAPTIVE_BENCHMARK, ratioNormalizer: SIZE_FACTOR },
+  );
+  const analyzePair = measureAdaptivePairedDurations(
+    () => analyze(smallAst, { source: smallSource }),
+    () => analyze(largeAst, { source: largeSource }),
+    { ...ADAPTIVE_BENCHMARK, ratioNormalizer: SIZE_FACTOR },
+  );
   return {
-    bytes: source.length,
-    tokenizeMs: benchmarkLexing(source).tokenizeMs,
-    parseMs: median(samples.map((sample) => sample.parseMs)),
-    analyzeMs: median(samples.map((sample) => sample.analyzeMs)),
+    small: analysisResult(smallSource, tokenizePair.first, parsePair.first, analyzePair.first),
+    large: analysisResult(largeSource, tokenizePair.second, parsePair.second, analyzePair.second),
+    normalizedGrowth: analyzePair.ratio,
   };
 }
 
-function benchmarkParse(source) {
-  const samples = Array.from({ length: SAMPLES }, () => {
-    const start = performance.now();
-    parseModule(source);
-    return performance.now() - start;
-  });
+function analysisResult(source, tokenizeResult, parseResult, analyzeResult) {
   return {
     bytes: source.length,
-    parseMs: round(median(samples)),
+    tokenizeMs: round(tokenizeResult.statistics.median),
+    parseMs: round(parseResult.statistics.median),
+    analyzeMs: round(analyzeResult.statistics.median),
+    statistics: {
+      tokenizeMs: tokenizeResult.statistics,
+      parseMs: parseResult.statistics,
+      analyzeMs: analyzeResult.statistics,
+    },
+    iterationsPerSample: {
+      tokenize: tokenizeResult.iterationsPerSample,
+      parse: parseResult.iterationsPerSample,
+      analyze: analyzeResult.iterationsPerSample,
+    },
   };
 }
 
-function benchmarkLexing(source) {
+function benchmarkParsePair(smallSource, largeSource, ratioNormalizer) {
+  const pair = measureAdaptivePairedDurations(
+    () => parseModule(smallSource),
+    () => parseModule(largeSource),
+    { ...ADAPTIVE_BENCHMARK, ratioNormalizer },
+  );
+  return {
+    small: durationResult(smallSource, "parseMs", pair.first),
+    large: durationResult(largeSource, "parseMs", pair.second),
+    normalizedGrowth: pair.ratio,
+  };
+}
+
+function durationResult(source, field, result) {
   return {
     bytes: source.length,
-    tokenizeMs: round(
-      measureMedianDuration(
-        () => {
-          tokenize(source);
-        },
-        { warmupIterations: 3, iterationsPerSample: 10, samples: SAMPLES },
-      ),
-    ),
+    [field]: roundDuration(result.statistics.median),
+    statistics: { [field]: result.statistics },
+    iterationsPerSample: result.iterationsPerSample,
   };
 }
 
@@ -398,57 +508,30 @@ function benchmarkLexing(source) {
  * 有利に受ける。各サンプルの先行入力を交互にし、入力固有でない順序差を比率から除く。
  */
 function benchmarkLexingPair(firstSource, secondSource) {
-  for (let iteration = 0; iteration < 10; iteration += 1) {
-    tokenize(firstSource);
-    tokenize(secondSource);
-  }
-  const firstSamples = [];
-  const secondSamples = [];
-  for (let sample = 0; sample < SAMPLES; sample += 1) {
-    const firstMeasure = () => firstSamples.push(measureLexingBatch(firstSource));
-    const secondMeasure = () => secondSamples.push(measureLexingBatch(secondSource));
-    if (sample % 2 === 0) {
-      firstMeasure();
-      secondMeasure();
-    } else {
-      secondMeasure();
-      firstMeasure();
-    }
-  }
-  return [
-    { bytes: firstSource.length, tokenizeMs: round(median(firstSamples)) },
-    { bytes: secondSource.length, tokenizeMs: round(median(secondSamples)) },
-  ];
-}
-
-/** lexerを10回実行し、一回あたりの時間を返す。 */
-function measureLexingBatch(source) {
-  const start = performance.now();
-  for (let iteration = 0; iteration < 10; iteration += 1) tokenize(source);
-  return (performance.now() - start) / 10;
-}
-
-function parseAndAnalyze(source) {
-  const start = performance.now();
-  const parsed = parseModule(source);
-  const parsedAt = performance.now();
-  analyze(parsed.ast, { source });
-  const analyzedAt = performance.now();
+  const pair = measureAdaptivePairedDurations(
+    () => tokenize(firstSource),
+    () => tokenize(secondSource),
+    ADAPTIVE_BENCHMARK,
+  );
   return {
-    parseMs: round(parsedAt - start),
-    analyzeMs: round(analyzedAt - parsedAt),
+    first: durationResult(firstSource, "tokenizeMs", pair.first),
+    second: durationResult(secondSource, "tokenizeMs", pair.second),
+    ratio: pair.ratio,
   };
 }
 
-function benchmarkFileReferences(source) {
-  const ast = parseModule(source).ast;
+function benchmarkFileReferencePair(smallSource, largeSource) {
+  const smallAst = parseModule(smallSource).ast;
+  const largeAst = parseModule(largeSource).ast;
+  const pair = measureAdaptivePairedDurations(
+    () => collectFileReferenceCandidates(smallAst, smallSource),
+    () => collectFileReferenceCandidates(largeAst, largeSource),
+    { ...ADAPTIVE_BENCHMARK, ratioNormalizer: SIZE_FACTOR },
+  );
   return {
-    bytes: source.length,
-    fileReferencesMs: round(
-      measureMedianDuration(() => {
-        collectFileReferenceCandidates(ast, source);
-      }, FILE_REFERENCE_BENCHMARK),
-    ),
+    small: durationResult(smallSource, "fileReferencesMs", pair.first),
+    large: durationResult(largeSource, "fileReferencesMs", pair.second),
+    normalizedGrowth: pair.ratio,
   };
 }
 
@@ -460,12 +543,15 @@ function benchmarkLspDocumentLifecycle(source) {
     assertDefinitionAvailable(snapshot, referenceOffset);
     return performance.now() - start;
   });
-  const visibleTypeQuerySamples = Array.from({ length: SAMPLES }, (_, index) => {
-    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, SAMPLES + index + 1);
-    const start = performance.now();
-    assertVisibleTypesAvailable(snapshot, referenceOffset);
-    return performance.now() - start;
-  });
+  const visibleTypeSnapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, SAMPLES + 1);
+  const visibleTypeQuery = measureAdaptiveDuration(
+    () => assertVisibleTypesAvailable(visibleTypeSnapshot, referenceOffset),
+    {
+      ...ADAPTIVE_BENCHMARK,
+      minSamples: SAMPLES,
+      maxSamples: SAMPLES,
+    },
+  );
 
   let current = source;
   let previous = makeDocumentSnapshot(LSP_DOCUMENT_URI, current, SAMPLES * 2 + 1);
@@ -474,26 +560,38 @@ function benchmarkLspDocumentLifecycle(source) {
     const updated = replaceAt(current, edit.offset, edit.text);
     const version = SAMPLES * 2 + index + 2;
 
-    const fullStart = performance.now();
-    const full = makeDocumentSnapshot(LSP_DOCUMENT_URI, updated, version);
-    assertDefinitionAvailable(full, edit.referenceOffset);
-    const fullRebuildMs = performance.now() - fullStart;
-
-    const incrementalStart = performance.now();
-    previous = updateDocumentSnapshot(previous, updated, version, [
-      {
-        range: {
-          start: previous.document.positionAt(edit.offset),
-          end: previous.document.positionAt(edit.offset + 1),
+    let fullRebuildMs;
+    let incrementalEditMs;
+    const measureFullRebuild = () => {
+      const start = performance.now();
+      const full = makeDocumentSnapshot(LSP_DOCUMENT_URI, updated, version);
+      assertDefinitionAvailable(full, edit.referenceOffset);
+      fullRebuildMs = performance.now() - start;
+    };
+    const measureIncrementalEdit = () => {
+      const start = performance.now();
+      previous = updateDocumentSnapshot(previous, updated, version, [
+        {
+          range: {
+            start: previous.document.positionAt(edit.offset),
+            end: previous.document.positionAt(edit.offset + 1),
+          },
+          text: edit.text,
         },
-        text: edit.text,
-      },
-    ]);
-    if (previous.parser.strategy !== "incremental") {
-      throw new Error("単一命令内の編集がインクリメンタルに処理されませんでした");
+      ]);
+      if (previous.parser.strategy !== "incremental") {
+        throw new Error("単一命令内の編集がインクリメンタルに処理されませんでした");
+      }
+      assertDefinitionAvailable(previous, edit.referenceOffset);
+      incrementalEditMs = performance.now() - start;
+    };
+    if (index % 2 === 0) {
+      measureFullRebuild();
+      measureIncrementalEdit();
+    } else {
+      measureIncrementalEdit();
+      measureFullRebuild();
     }
-    assertDefinitionAvailable(previous, edit.referenceOffset);
-    const incrementalEditMs = performance.now() - incrementalStart;
     current = updated;
     return {
       fullRebuildMs,
@@ -502,39 +600,63 @@ function benchmarkLspDocumentLifecycle(source) {
     };
   });
 
+  const statistics = {
+    initialLoadMs: summarizeSamples(initialLoadSamples),
+    fullRebuildEditMs: summarizeSamples(editSamples.map((sample) => sample.fullRebuildMs)),
+    incrementalEditMs: summarizeSamples(editSamples.map((sample) => sample.incrementalEditMs)),
+    visibleTypeQueryMs: visibleTypeQuery.statistics,
+  };
   return {
     bytes: source.length,
-    initialLoadMs: round(median(initialLoadSamples)),
-    fullRebuildEditMs: round(median(editSamples.map((sample) => sample.fullRebuildMs))),
-    incrementalEditMs: round(median(editSamples.map((sample) => sample.incrementalEditMs))),
+    initialLoadMs: round(statistics.initialLoadMs.median),
+    fullRebuildEditMs: round(statistics.fullRebuildEditMs.median),
+    incrementalEditMs: round(statistics.incrementalEditMs.median),
     incrementalReparsedBytes: median(editSamples.map((sample) => sample.incrementalReparsedBytes)),
-    visibleTypeQueryMs: round(median(visibleTypeQuerySamples)),
+    visibleTypeQueryMs: roundDuration(statistics.visibleTypeQueryMs.median),
+    statistics,
+    visibleTypeIterationsPerSample: visibleTypeQuery.iterationsPerSample,
   };
 }
 
 function benchmarkOpenDocumentFanout(source) {
-  const duplicatedSamples = Array.from({ length: SAMPLES }, (_, index) => {
-    const workspaceSymbols = new WorkspaceSymbolIndex();
-    const callHierarchy = new CallHierarchyIndex();
-    const start = performance.now();
-    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
-    workspaceSymbols.upsertOpenDocument(snapshot.uri, source, snapshot.version);
-    callHierarchy.upsertSnapshot(snapshot);
-    return performance.now() - start;
-  });
-  const sharedSamples = Array.from({ length: SAMPLES }, (_, index) => {
-    const workspaceSymbols = new WorkspaceSymbolIndex();
-    const callHierarchy = new CallHierarchyIndex();
-    const start = performance.now();
-    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
-    workspaceSymbols.upsertOpenSnapshot(snapshot);
-    callHierarchy.upsertSnapshot(snapshot);
-    return performance.now() - start;
-  });
+  const duplicatedSamples = [];
+  const sharedSamples = [];
+  for (let index = 0; index < SAMPLES; index += 1) {
+    const measureDuplicated = () => {
+      const workspaceSymbols = new WorkspaceSymbolIndex();
+      const callHierarchy = new CallHierarchyIndex();
+      const start = performance.now();
+      const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
+      workspaceSymbols.upsertOpenDocument(snapshot.uri, source, snapshot.version);
+      callHierarchy.upsertSnapshot(snapshot);
+      duplicatedSamples.push(performance.now() - start);
+    };
+    const measureShared = () => {
+      const workspaceSymbols = new WorkspaceSymbolIndex();
+      const callHierarchy = new CallHierarchyIndex();
+      const start = performance.now();
+      const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
+      workspaceSymbols.upsertOpenSnapshot(snapshot);
+      callHierarchy.upsertSnapshot(snapshot);
+      sharedSamples.push(performance.now() - start);
+    };
+    if (index % 2 === 0) {
+      measureDuplicated();
+      measureShared();
+    } else {
+      measureShared();
+      measureDuplicated();
+    }
+  }
+  const statistics = {
+    duplicatedAnalysisMs: summarizeSamples(duplicatedSamples),
+    sharedSnapshotMs: summarizeSamples(sharedSamples),
+  };
   return {
     bytes: source.length,
-    duplicatedAnalysisMs: round(median(duplicatedSamples)),
-    sharedSnapshotMs: round(median(sharedSamples)),
+    duplicatedAnalysisMs: round(statistics.duplicatedAnalysisMs.median),
+    sharedSnapshotMs: round(statistics.sharedSnapshotMs.median),
+    statistics,
   };
 }
 
@@ -542,20 +664,32 @@ function benchmarkDeferredNavigationIndexes(source) {
   const referenceOffset = source.lastIndexOf(`ret i32 %v39`) + "ret i32 ".length;
   const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source);
   assertDefinitionOnly(snapshot, referenceOffset);
-  const options = { warmupIterations: 2, iterationsPerSample: 3, samples: SAMPLES };
-  const deferMs = measureMedianDuration(() => {
-    const workspaceSymbols = new WorkspaceSymbolIndex();
-    const callHierarchy = new CallHierarchyIndex();
-    const derived = new SnapshotDerivedIndexes(workspaceSymbols, callHierarchy);
-    derived.defer(snapshot);
-  }, options);
-  const ensureMs = measureMedianDuration(() => {
-    const workspaceSymbols = new WorkspaceSymbolIndex();
-    const callHierarchy = new CallHierarchyIndex();
-    const derived = new SnapshotDerivedIndexes(workspaceSymbols, callHierarchy);
-    derived.defer(snapshot);
-    derived.ensure(snapshot.uri);
-  }, options);
+  const pair = measureAdaptivePairedDurations(
+    () => {
+      const workspaceSymbols = new WorkspaceSymbolIndex();
+      const callHierarchy = new CallHierarchyIndex();
+      const derived = new SnapshotDerivedIndexes(workspaceSymbols, callHierarchy);
+      derived.defer(snapshot);
+    },
+    () => {
+      const workspaceSymbols = new WorkspaceSymbolIndex();
+      const callHierarchy = new CallHierarchyIndex();
+      const derived = new SnapshotDerivedIndexes(workspaceSymbols, callHierarchy);
+      derived.defer(snapshot);
+      derived.ensure(snapshot.uri);
+    },
+    ADAPTIVE_BENCHMARK,
+  );
+  const pairedCount = Math.min(
+    pair.first.statistics.samples.length,
+    pair.second.statistics.samples.length,
+  );
+  const savedFromNavigationStatistics = summarizeSamples(
+    Array.from(
+      { length: pairedCount },
+      (_, index) => pair.second.statistics.samples[index] - pair.first.statistics.samples[index],
+    ),
+  );
 
   const workspaceSymbols = new WorkspaceSymbolIndex();
   const callHierarchy = new CallHierarchyIndex();
@@ -567,23 +701,43 @@ function benchmarkDeferredNavigationIndexes(source) {
   }
   return {
     bytes: source.length,
-    deferMs: round(deferMs),
-    ensureMs: round(ensureMs),
-    savedFromNavigationMs: round(ensureMs - deferMs),
+    deferMs: roundDuration(pair.first.statistics.median),
+    ensureMs: roundDuration(pair.second.statistics.median),
+    savedFromNavigationMs: roundDuration(savedFromNavigationStatistics.median),
+    statistics: {
+      deferMs: pair.first.statistics,
+      ensureMs: pair.second.statistics,
+      savedFromNavigationMs: savedFromNavigationStatistics,
+    },
+    iterationsPerSample: {
+      defer: pair.first.iterationsPerSample,
+      ensure: pair.second.iterationsPerSample,
+    },
   };
 }
 
-function benchmarkInitialNavigation(source) {
-  const referenceOffset = source.lastIndexOf(`ret i32 %v39`) + "ret i32 ".length;
-  const samples = Array.from({ length: SAMPLES }, (_, index) => {
-    const start = performance.now();
-    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
-    assertDefinitionOnly(snapshot, referenceOffset);
-    return performance.now() - start;
-  });
+function benchmarkInitialNavigationPair(smallSource, largeSource) {
+  const smallReferenceOffset = smallSource.lastIndexOf(`ret i32 %v39`) + "ret i32 ".length;
+  const largeReferenceOffset = largeSource.lastIndexOf(`ret i32 %v39`) + "ret i32 ".length;
+  const pair = measureAdaptivePairedDurations(
+    () => {
+      const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, smallSource);
+      assertDefinitionOnly(snapshot, smallReferenceOffset);
+    },
+    () => {
+      const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, largeSource);
+      assertDefinitionOnly(snapshot, largeReferenceOffset);
+    },
+    {
+      ...ADAPTIVE_BENCHMARK,
+      ratioNormalizer: SIZE_FACTOR,
+      maxIterationsPerSample: 10,
+    },
+  );
   return {
-    bytes: source.length,
-    initialNavigationMs: round(median(samples)),
+    small: durationResult(smallSource, "initialNavigationMs", pair.first),
+    large: durationResult(largeSource, "initialNavigationMs", pair.second),
+    normalizedGrowth: pair.ratio,
   };
 }
 
@@ -709,15 +863,13 @@ function measureAction(name, action) {
   const coldStart = performance.now();
   action();
   const coldMs = performance.now() - coldStart;
-  const samples = Array.from({ length: SAMPLES }, () => {
-    const start = performance.now();
-    action();
-    return performance.now() - start;
-  });
+  const measurement = measureAdaptiveDuration(action, ADAPTIVE_BENCHMARK);
   return {
     name,
     coldMs: roundMilliseconds(coldMs),
-    ms: roundMilliseconds(median(samples)),
+    ms: roundMilliseconds(measurement.statistics.median),
+    statistics: measurement.statistics,
+    iterationsPerSample: measurement.iterationsPerSample,
   };
 }
 
@@ -725,17 +877,13 @@ async function measureAsyncAction(name, action) {
   const coldStart = performance.now();
   await action();
   const coldMs = performance.now() - coldStart;
-  const samples = [];
-  for (let index = 0; index < SAMPLES; index += 1) {
-    const start = performance.now();
-    // oxlint-disable-next-line no-await-in-loop -- 並列実行では単一操作の待ち時間を測定できない。
-    await action();
-    samples.push(performance.now() - start);
-  }
+  const measurement = await measureAdaptiveAsyncDuration(action, ADAPTIVE_BENCHMARK);
   return {
     name,
     coldMs: roundMilliseconds(coldMs),
-    ms: roundMilliseconds(median(samples)),
+    ms: roundMilliseconds(measurement.statistics.median),
+    statistics: measurement.statistics,
+    iterationsPerSample: measurement.iterationsPerSample,
   };
 }
 
@@ -748,7 +896,7 @@ function incrementalEditAt(source, sampleIndex) {
   }
   return {
     offset: instructionStart + "add i32 ".length,
-    text: String(sampleIndex + 2),
+    text: String((sampleIndex % 8) + 2),
     referenceOffset: returnStart + "ret i32 ".length,
   };
 }
@@ -845,6 +993,38 @@ function makeCallChain(functionCount) {
   }).join("\n");
 }
 
+function checkMaximum(scenario, statistics, maximum, regressionMessage) {
+  if (!process.argv.includes("--check")) return;
+  const classification = classifyMaximum(statistics.confidenceInterval, maximum);
+  if (classification === "regression") {
+    console.error(`${scenario}: ${regressionMessage}`);
+    failed = true;
+  } else if (classification === "inconclusive") {
+    console.warn(
+      `${scenario}: 95%信頼区間 ${formatConfidenceInterval(statistics)} が上限 ${maximum} をまたぐため判定不能です`,
+    );
+    inconclusiveScenarios.push(scenario);
+  }
+}
+
+function checkMinimum(scenario, statistics, minimum, regressionMessage) {
+  if (!process.argv.includes("--check")) return;
+  const classification = classifyMinimum(statistics.confidenceInterval, minimum);
+  if (classification === "regression") {
+    console.error(`${scenario}: ${regressionMessage}`);
+    failed = true;
+  } else if (classification === "inconclusive") {
+    console.warn(
+      `${scenario}: 95%信頼区間 ${formatConfidenceInterval(statistics)} が下限 ${minimum} をまたぐため判定不能です`,
+    );
+    inconclusiveScenarios.push(scenario);
+  }
+}
+
+function formatConfidenceInterval(statistics) {
+  return `${round(statistics.confidenceInterval.lower)}–${round(statistics.confidenceInterval.upper)}`;
+}
+
 function median(values) {
   return values.toSorted((left, right) => left - right)[Math.floor(values.length / 2)];
 }
@@ -855,6 +1035,10 @@ function round(value) {
 
 function roundMilliseconds(value) {
   return Math.round(value * 1_000) / 1_000;
+}
+
+function roundDuration(value) {
+  return Math.abs(value) < 1 ? roundMilliseconds(value) : round(value);
 }
 
 function roundRecord(record) {

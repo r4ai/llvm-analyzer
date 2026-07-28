@@ -12,7 +12,11 @@ export default defineConfig({
     include: ["packages/*/src/**/*.test.ts", "scripts/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      include: ["packages/*/src/**/*.ts", "scripts/stable-benchmark.mts"],
+      include: [
+        "packages/*/src/**/*.ts",
+        "scripts/stable-benchmark.mts",
+        "scripts/benchmark-comparison.mts",
+      ],
       exclude: [
         "packages/*/src/**/*.test.ts",
         "packages/*/src/**/index.ts",

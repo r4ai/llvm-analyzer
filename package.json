@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "build": "pnpm -r --if-present build",
+    "benchmark:compare": "node scripts/compare-large-ir-benchmarks.mjs",
     "benchmark:large-ir": "node scripts/benchmark-large-ir.mjs",
     "changeset": "changeset",
     "test": "vitest run --passWithNoTests",
