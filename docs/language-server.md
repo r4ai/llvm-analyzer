@@ -26,6 +26,8 @@ LLVM IR の規則は `parser` と `analyzer` に置き、`language-server` は�
 
 起動時の索引は workspace 全体機能のために作ります。
 通常の単一ファイル機能は、要求時点のドキュメント snapshot だけで応答します。
+複数ファイルの読み込みは最大4件まで並行し、各ファイルの同期解析前にイベントループへ制御を返します。
+このため、初期索引の途中でもopen documentのLSP要求をファイル列全体の後ろへ待たせません。
 
 ## 変更時の処理
 
@@ -47,7 +49,9 @@ sequenceDiagram
   Server-->>Client: diagnostics を差し替え
 ```
 
-変更通知は 150ms debounce して解析します。
+ファイルを開いたときは中核snapshotを即時生成します。
+診断送信は150 ms debounceしますが、初回Definition、Hover、Referencesはこの待機時間を負担しません。
+変更通知は150 ms debounceして解析します。
 待機中に複数の通知が届いた場合は、開始バージョンと終了バージョンを確認し、`contentChanges`を通知順にparser sessionへ適用します。
 バージョンが連続しない場合は推測した変更列を使わず、安全な全文解析へ戻ります。
 解析結果は `DocumentSnapshot` として URI ごとに保存します。
@@ -71,7 +75,9 @@ verifier の実行中プロセスは `AbortController` で中止します。
 
 snapshot は LSP 応答の基準です。
 位置変換、range 変換、シンボル検索、診断変換は snapshot 内の `TextDocument` と semantic model だけを見ます。
-snapshot作成時に行位置表と安全な置換候補索引を準備します。
+snapshot作成時は位置操作に必要な行位置表だけを準備します。
+Rename／Quick Fix用の安全な置換候補索引は、そのアクションの最初の利用時に作ります。
+CFGと直接呼び出し列も、対応する要求まで構築しません。
 同じsnapshotから導出したDocument Symbols、Semantic Tokens、Folding Ranges、Document Link候補は再利用し、文書バージョンの置換を失効境界にします。
 
 ## LSP 機能の対応
@@ -222,13 +228,15 @@ server は定義位置を `Location` として返します。
 
 ## workspace 索引
 
-| 索引                   | 対象                                                                                         | 更新条件                                        |
-| ---------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `WorkspaceSymbolIndex` | モジュールスコープの関数、グローバル、型、メタデータ、属性グループ、comdatの名前三文字索引。 | 起動時走査、open document、watched file event。 |
-| `CallHierarchyIndex`   | 直接呼び出しのcaller別索引とcallee別索引。                                                   | 起動時走査、open document、watched file event。 |
+| 索引                   | 対象                                                                                         | 更新条件                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `WorkspaceSymbolIndex` | モジュールスコープの関数、グローバル、型、メタデータ、属性グループ、comdatの名前三文字索引。 | 起動時走査、要求時のopen document、watched file event。 |
+| `CallHierarchyIndex`   | 直接呼び出しのcaller別索引とcallee別索引。                                                   | 起動時走査、要求時のopen document、watched file event。 |
 
 open document はディスク上のファイルより優先します。
 開いている `.ll` ファイルはエディタ上の内容で索引します。
+open documentの最新snapshotはURI単位で保留し、Workspace SymbolまたはCall Hierarchy要求の直前に派生索引へ反映します。
+Definition、Hover、Referencesはこの派生索引更新を実行しません。
 閉じた `.ll` ファイルはディスク内容へ戻します。
 削除された `.ll` ファイルは索引から消します。
 3文字以上のWorkspace Symbol queryは三文字索引で候補を絞り、部分一致契約を保ったまま無関係なシンボルを走査しません。
@@ -243,11 +251,13 @@ open document はディスク上のファイルより優先します。
 | References、Rename                                | 対象シンボルの参照数に比例し、再整列しない。                           |
 | Document Symbols、Semantic Tokens、Folding Ranges | 初回は返却件数に比例し、同じsnapshotの再要求では導出結果を再利用する。 |
 | Range Formatting                                  | 選択行数に比例し、文書全体を整形しない。                               |
-| Workspace Symbols、Call Hierarchy                 | 登録時に索引化し、問い合わせでは索引候補と返却件数を処理する。         |
+| Workspace Symbols、Call Hierarchy                 | 要求時に最新snapshotを索引化し、索引候補と返却件数を処理する。         |
 
 初回解析と索引準備を含む操作別の待ち時間は`pnpm benchmark:large-ir -- --check`で検査します。
 結果件数が一定の対話操作は20 ms、全件操作の初回生成は100 msを上限にします。
 約1.58 MB、1,600関数、64,000命令の合成IRでは、初回snapshotとDefinitionを500 ms、単一関数内の局所編集後snapshotとDefinitionを150 msのCI上限で検査します。
+約6.3 MB、6,400関数、256,000命令の合成IRでも初回Definitionを検査し、派生索引の構築を含めない中核経路が1.5秒を超えたらCIを失敗させます。
+数値中心IRのlexerは同じトークン数の識別子中心IRとの相対時間を検査し、一般的な10進数で低頻度の数値正規表現を総当たりする回帰を防ぎます。
 この絶対上限に加え、入力4倍時の正規化増加率と全体再構築に対する局所更新の高速化率を検査し、異なるrunner性能でも線形時間とインクリメンタル更新の契約を維持します。
 短時間の操作は5 msをノイズ床として入力増加率を計算し、単発のJITとGC停止を計算量回帰と判定しません。
 snapshot共有は1.2倍以上の高速化と50 ms以上の重複解析削減を同時に検査します。

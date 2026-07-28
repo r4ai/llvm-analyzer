@@ -1,6 +1,6 @@
 # 解析の流れ
 
-`llvm-analyzer` の解析は `source -> tokens -> AST -> semantic model` の順に進みます。
+`llvm-analyzer` の解析は `source -> scanner -> parser tokens -> AST -> semantic model` の順に進みます。
 `parser` は構文を拾い、`analyzer` は識別子同士を結びます。
 LSP 形式への変換、外部コマンド実行、配布処理はこの文書の対象外です。
 
@@ -9,23 +9,26 @@ LSP 形式への変換、外部コマンド実行、配布処理はこの文書�
 ```mermaid
 flowchart LR
   Source["LLVM IR source"]
-  Lexer["tokenize"]
-  Tokens["Token[]"]
+  Lexer["shared scanner"]
+  PublicTokens["公開 Token[]"]
+  ParserTokens["軽量 ParserToken[]"]
   Parser["parseModule"]
   Ast["Module AST"]
   Analyzer["analyze"]
   Model["SemanticModel"]
   TypeParser["parseLlvmType"]
 
-  Source --> Lexer --> Tokens --> Parser --> Ast --> Analyzer --> Model
+  Source --> Lexer
+  Lexer --> PublicTokens
+  Lexer --> ParserTokens --> Parser --> Ast --> Analyzer --> Model
   Analyzer --> TypeParser
 ```
 
-| 段階     | 入力                | 出力                | 主な処理                                                  |
-| -------- | ------------------- | ------------------- | --------------------------------------------------------- |
-| 字句解析 | LLVM IR 文字列      | `Token[]`           | 文字列を種別付き token に分ける。                         |
-| 構文解析 | `Token[]`           | `Module` と構文診断 | トップレベル構造、関数、基本ブロック、命令を AST 化する。 |
-| 意味解析 | `Module` と元ソース | `SemanticModel`     | スコープ、シンボル、参照、型、CFG、直接呼び出しを作る。   |
+| 段階     | 入力                | 出力                        | 主な処理                                                |
+| -------- | ------------------- | --------------------------- | ------------------------------------------------------- |
+| 字句解析 | LLVM IR 文字列      | 公開Token / parser専用Token | 文字列を種別付きtokenに分け、用途別の表現を生成する。   |
+| 構文解析 | parser専用Token     | `Module` と構文診断         | トップレベル構造、関数、基本ブロック、命令をAST化する。 |
+| 意味解析 | `Module` と元ソース | `SemanticModel`             | スコープ、シンボル、参照、型、CFG、直接呼び出しを作る。 |
 
 すべての位置は 0 始まりです。
 `range` は `offset`、`line`、`column` を持ち、元ソース上の半開区間を指します。
@@ -35,6 +38,9 @@ flowchart LR
 `tokenize(source)` は空白を読み飛ばし、コメント、識別子、型、命令、定数、数値、文字列、記号を token にします。
 末尾には必ずゼロ幅の `Eof` を追加します。
 認識できない文字は `Unknown` として残し、後続の解析を止めません。
+`parseModule`は同じscannerから、位置をプリミティブ値で持つ軽量Tokenを直接生成します。
+コメントは生成時に除外し、単一行Tokenの終了位置は開始位置と値の長さから導出します。
+公開`Token`の値、種別、完全な`range`契約は変わりません。
 
 例として、次の 1 行を字句解析します。
 
@@ -60,7 +66,7 @@ flowchart LR
 
 ## 構文解析
 
-`parseModule(source)` は `tokenize(source)` の結果からコメントを除き、トップレベルエントリを順に作ります。
+`parseModule(source)` は共通scannerのparser専用Tokenから、トップレベルエントリを順に作ります。
 `define` は関数本体の `{ ... }` を 1 つの単位として読みます。
 それ以外のトップレベルエントリは、括弧や角括弧が閉じる位置までを 1 要素として読みます。
 

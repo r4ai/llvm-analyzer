@@ -18,8 +18,9 @@ import {
 import { CallHierarchyIndex } from "../packages/language-server/src/lsp/call-hierarchy.ts";
 import { getDocumentLinks } from "../packages/language-server/src/lsp/document-links.ts";
 import { getDiagnostics, getInlayHints } from "../packages/language-server/src/lsp/features.ts";
+import { SnapshotDerivedIndexes } from "../packages/language-server/src/lsp/snapshot-derived-indexes.ts";
 import { WorkspaceSymbolIndex } from "../packages/language-server/src/lsp/workspace-symbols.ts";
-import { parseModule } from "../packages/parser/src/index.ts";
+import { parseModule, tokenize } from "../packages/parser/src/index.ts";
 import { measureMedianDuration } from "./stable-benchmark.mts";
 
 const SIZE_FACTOR = 4;
@@ -30,11 +31,15 @@ const MAX_INTERACTIVE_ACTION_MS = 20;
 const MAX_COLD_FULL_ACTION_MS = 100;
 const MAX_INITIAL_SNAPSHOT_MS = 500;
 const MAX_INCREMENTAL_NAVIGATION_MS = 150;
+const MAX_EXTRA_LARGE_NORMALIZED_GROWTH = 1.3;
+const MAX_NUMERIC_LEXING_RATIO = 1.4;
 const MIN_POINT_GROWTH_BASELINE_MS = 5;
 const MIN_OUTPUT_GROWTH_BASELINE_MS = 10;
 const MIN_INCREMENTAL_SPEEDUP = 1.2;
 const MIN_SHARING_SPEEDUP = 1.2;
 const MIN_SHARING_SAVED_MS = 50;
+const MIN_DEFERRED_INDEX_SAVED_MS = 0.5;
+const INPUT_LINEAR_COLD_POINT_ACTIONS = new Set(["code-action", "document-links"]);
 const SAMPLES = 5;
 const FILE_REFERENCE_BENCHMARK = {
   warmupIterations: 3,
@@ -59,6 +64,27 @@ const scenarios = [
 parseAndAnalyze(makeManyFunctions(10, 10));
 
 let failed = false;
+
+const [numericLexing, identifierLexing] = benchmarkLexingPair(
+  makeNumericInstructions(8_000),
+  makeIdentifierInstructions(8_000),
+);
+const numericLexingRatio = numericLexing.tokenizeMs / identifierLexing.tokenizeMs;
+console.log(
+  JSON.stringify({
+    scenario: "numeric-heavy-lexing",
+    numeric: numericLexing,
+    identifier: identifierLexing,
+    ratio: round(numericLexingRatio),
+  }),
+);
+if (process.argv.includes("--check") && numericLexingRatio > MAX_NUMERIC_LEXING_RATIO) {
+  console.error(
+    `numeric-heavy-lexing: 数値中心IRの字句解析が同じトークン数の識別子中心IRに対して ${round(numericLexingRatio)} 倍かかりました`,
+  );
+  failed = true;
+}
+
 for (const scenario of scenarios) {
   const small = benchmark(scenario.makeSource(scenario.smallSize));
   const large = benchmark(scenario.makeSource(scenario.smallSize * SIZE_FACTOR));
@@ -211,6 +237,45 @@ if (process.argv.includes("--check") && sharingSavedMs < MIN_SHARING_SAVED_MS) {
   failed = true;
 }
 
+const deferredNavigation = benchmarkDeferredNavigationIndexes(
+  makeManyFunctions(400 * SIZE_FACTOR, 40),
+);
+console.log(
+  JSON.stringify({
+    scenario: "deferred-navigation-indexes",
+    ...deferredNavigation,
+  }),
+);
+if (
+  process.argv.includes("--check") &&
+  deferredNavigation.savedFromNavigationMs < MIN_DEFERRED_INDEX_SAVED_MS
+) {
+  console.error(
+    `deferred-navigation-indexes: Definitionから分離した派生索引時間が ${MIN_DEFERRED_INDEX_SAVED_MS} ms未満でした: ${deferredNavigation.savedFromNavigationMs} ms`,
+  );
+  failed = true;
+}
+
+const extraLargeNavigation = benchmarkInitialNavigation(makeManyFunctions(6_400, 40));
+const extraLargeNormalizedGrowth =
+  extraLargeNavigation.initialNavigationMs / lifecycleLarge.initialLoadMs / SIZE_FACTOR;
+console.log(
+  JSON.stringify({
+    scenario: "extra-large-initial-navigation",
+    ...extraLargeNavigation,
+    normalizedGrowth: round(extraLargeNormalizedGrowth),
+  }),
+);
+if (
+  process.argv.includes("--check") &&
+  extraLargeNormalizedGrowth > MAX_EXTRA_LARGE_NORMALIZED_GROWTH
+) {
+  console.error(
+    `extra-large-initial-navigation: 約6 MBの初回Definitionが入力4倍で正規化後 ${round(extraLargeNormalizedGrowth)} 倍に増加しました`,
+  );
+  failed = true;
+}
+
 const actionSmall = await benchmarkLanguageActions(400);
 const actionLarge = await benchmarkLanguageActions(400 * SIZE_FACTOR);
 const pointActionGrowth = Object.fromEntries(
@@ -220,7 +285,9 @@ const pointActionGrowth = Object.fromEntries(
     );
     return [
       smallAction.name,
-      largeAction.coldMs / Math.max(smallAction.coldMs, MIN_POINT_GROWTH_BASELINE_MS),
+      largeAction.coldMs /
+        Math.max(smallAction.coldMs, MIN_POINT_GROWTH_BASELINE_MS) /
+        (INPUT_LINEAR_COLD_POINT_ACTIONS.has(smallAction.name) ? SIZE_FACTOR : 1),
     ];
   }),
 );
@@ -251,7 +318,7 @@ if (
   Object.entries(pointActionGrowth).some(([, growth]) => growth > MAX_POINT_QUERY_GROWTH)
 ) {
   console.error(
-    `language-actions: 結果件数が一定の操作が入力4倍で ${JSON.stringify(roundRecord(pointActionGrowth))} 倍に増加しました`,
+    `language-actions: 入力倍率を考慮した対話操作時間が ${JSON.stringify(roundRecord(pointActionGrowth))} 倍に増加しました`,
   );
   failed = true;
 }
@@ -291,6 +358,7 @@ function benchmark(source) {
   const samples = Array.from({ length: SAMPLES }, () => parseAndAnalyze(source));
   return {
     bytes: source.length,
+    tokenizeMs: benchmarkLexing(source).tokenizeMs,
     parseMs: median(samples.map((sample) => sample.parseMs)),
     analyzeMs: median(samples.map((sample) => sample.analyzeMs)),
   };
@@ -306,6 +374,58 @@ function benchmarkParse(source) {
     bytes: source.length,
     parseMs: round(median(samples)),
   };
+}
+
+function benchmarkLexing(source) {
+  return {
+    bytes: source.length,
+    tokenizeMs: round(
+      measureMedianDuration(
+        () => {
+          tokenize(source);
+        },
+        { warmupIterations: 3, iterationsPerSample: 10, samples: SAMPLES },
+      ),
+    ),
+  };
+}
+
+/**
+ * 二つのlexer入力を同じウォームアップ状態と交互の測定順で比較する。
+ *
+ * @remarks
+ * 入力ごとに全サンプルを直列計測すると、後から測る入力だけがJIT最適化や直前のGC停止を
+ * 有利に受ける。各サンプルの先行入力を交互にし、入力固有でない順序差を比率から除く。
+ */
+function benchmarkLexingPair(firstSource, secondSource) {
+  for (let iteration = 0; iteration < 10; iteration += 1) {
+    tokenize(firstSource);
+    tokenize(secondSource);
+  }
+  const firstSamples = [];
+  const secondSamples = [];
+  for (let sample = 0; sample < SAMPLES; sample += 1) {
+    const firstMeasure = () => firstSamples.push(measureLexingBatch(firstSource));
+    const secondMeasure = () => secondSamples.push(measureLexingBatch(secondSource));
+    if (sample % 2 === 0) {
+      firstMeasure();
+      secondMeasure();
+    } else {
+      secondMeasure();
+      firstMeasure();
+    }
+  }
+  return [
+    { bytes: firstSource.length, tokenizeMs: round(median(firstSamples)) },
+    { bytes: secondSource.length, tokenizeMs: round(median(secondSamples)) },
+  ];
+}
+
+/** lexerを10回実行し、一回あたりの時間を返す。 */
+function measureLexingBatch(source) {
+  const start = performance.now();
+  for (let iteration = 0; iteration < 10; iteration += 1) tokenize(source);
+  return (performance.now() - start) / 10;
 }
 
 function parseAndAnalyze(source) {
@@ -415,6 +535,55 @@ function benchmarkOpenDocumentFanout(source) {
     bytes: source.length,
     duplicatedAnalysisMs: round(median(duplicatedSamples)),
     sharedSnapshotMs: round(median(sharedSamples)),
+  };
+}
+
+function benchmarkDeferredNavigationIndexes(source) {
+  const referenceOffset = source.lastIndexOf(`ret i32 %v39`) + "ret i32 ".length;
+  const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source);
+  assertDefinitionOnly(snapshot, referenceOffset);
+  const options = { warmupIterations: 2, iterationsPerSample: 3, samples: SAMPLES };
+  const deferMs = measureMedianDuration(() => {
+    const workspaceSymbols = new WorkspaceSymbolIndex();
+    const callHierarchy = new CallHierarchyIndex();
+    const derived = new SnapshotDerivedIndexes(workspaceSymbols, callHierarchy);
+    derived.defer(snapshot);
+  }, options);
+  const ensureMs = measureMedianDuration(() => {
+    const workspaceSymbols = new WorkspaceSymbolIndex();
+    const callHierarchy = new CallHierarchyIndex();
+    const derived = new SnapshotDerivedIndexes(workspaceSymbols, callHierarchy);
+    derived.defer(snapshot);
+    derived.ensure(snapshot.uri);
+  }, options);
+
+  const workspaceSymbols = new WorkspaceSymbolIndex();
+  const callHierarchy = new CallHierarchyIndex();
+  const derived = new SnapshotDerivedIndexes(workspaceSymbols, callHierarchy);
+  derived.defer(snapshot);
+  derived.ensure(snapshot.uri);
+  if (workspaceSymbols.search("@f1599").length !== 1) {
+    throw new Error("保留したWorkspace Symbol索引を最新化できませんでした");
+  }
+  return {
+    bytes: source.length,
+    deferMs: round(deferMs),
+    ensureMs: round(ensureMs),
+    savedFromNavigationMs: round(ensureMs - deferMs),
+  };
+}
+
+function benchmarkInitialNavigation(source) {
+  const referenceOffset = source.lastIndexOf(`ret i32 %v39`) + "ret i32 ".length;
+  const samples = Array.from({ length: SAMPLES }, (_, index) => {
+    const start = performance.now();
+    const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
+    assertDefinitionOnly(snapshot, referenceOffset);
+    return performance.now() - start;
+  });
+  return {
+    bytes: source.length,
+    initialNavigationMs: round(median(samples)),
   };
 }
 
@@ -596,6 +765,11 @@ function assertDefinitionAvailable(snapshot, referenceOffset) {
   if (!definition) throw new Error("差分編集後の定義参照を解決できませんでした");
 }
 
+function assertDefinitionOnly(snapshot, referenceOffset) {
+  const definition = getDefinition(snapshot, snapshot.document.positionAt(referenceOffset));
+  if (!definition) throw new Error("Definitionを解決できませんでした");
+}
+
 function assertVisibleTypesAvailable(snapshot, referenceOffset) {
   const referencePosition = snapshot.document.positionAt(referenceOffset);
   const hints = getInlayHints(snapshot, {
@@ -634,6 +808,20 @@ function makeSharedGlobalReferences(referenceCount) {
     `  ret i32 %v${referenceCount - 1}`,
     "}",
   ].join("\n");
+}
+
+function makeNumericInstructions(instructionCount) {
+  return Array.from(
+    { length: instructionCount },
+    (_, index) => `%v${index} = add i32 ${index}, ${index + 1}\n`,
+  ).join("");
+}
+
+function makeIdentifierInstructions(instructionCount) {
+  return Array.from(
+    { length: instructionCount },
+    (_, index) => `%v${index} = add i32 %a${index}, %b${index}\n`,
+  ).join("");
 }
 
 function makeWideRecoveryInstruction(incomingCount) {

@@ -7,7 +7,8 @@
  * 通常行単位だが、区切り記号が複数行にまたがる場合は閉じるまで 1 エントリとして集める。
  * 1 エントリのパースに失敗しても診断を積んで次へ進む（エラー回復）ため、不正入力でも全体は止まらない。
  */
-import { type Range, type Token, tokenize } from "../lexer/index.ts";
+import type { Range } from "../lexer/index.ts";
+import { type ParserToken, tokenizeForParser } from "../lexer/lexer.ts";
 import type {
   BasicBlock,
   DebugRecord,
@@ -19,6 +20,11 @@ import type {
   TopLevelEntry,
   UseListOrderDirective,
 } from "../ast/index.ts";
+
+type Token = ParserToken;
+
+/** 参照を持たないAST要素で共有する不変配列。 */
+const EMPTY_IDENTIFIER_REFS: readonly IdentifierRef[] = Object.freeze([]);
 
 /** 識別子トークンの種別集合（参照として収集する対象）。 */
 const IDENTIFIER_KINDS = new Set<Token["kind"]>([
@@ -53,8 +59,28 @@ const REF_KIND: Readonly<Record<Token["kind"], IdentifierRef["kind"] | undefined
 
 /** `start`/`end` トークンから範囲を作る（半開区間）。 */
 const spanOf = (start: Token, end: Token): Range => ({
-  start: start.range.start,
-  end: end.range.end,
+  start: startPositionOf(start),
+  end: endPositionOf(end),
+});
+
+/** 軽量トークンの開始位置を公開ASTの位置表現へ変換する。 */
+const startPositionOf = (token: Token): Range["start"] => ({
+  offset: token.startOffset,
+  line: token.startLine,
+  column: token.startColumn,
+});
+
+/** 軽量トークンの終了位置を公開ASTの位置表現へ変換する。 */
+const endPositionOf = (token: Token): Range["end"] => ({
+  offset: token.startOffset + token.value.length,
+  line: token.endLine ?? token.startLine,
+  column: token.endColumn ?? token.startColumn + token.value.length,
+});
+
+/** 軽量トークン一つの半開rangeを公開ASTの表現へ変換する。 */
+const rangeOf = (token: Token): Range => ({
+  start: startPositionOf(token),
+  end: endPositionOf(token),
 });
 
 /**
@@ -72,16 +98,19 @@ const makeRef = (
     (token.kind === "LocalIdentifier" && prev?.kind === "Type" && prev.value === "label"
       ? "LabelRef"
       : base);
-  return { kind, name: token.value, range: token.range };
+  return { kind, name: token.value, range: rangeOf(token) };
 };
 
 /**
  * トークン列に現れる識別子参照を収集する。
  * `excludeIndex` の位置（そのエントリが定義する名前など）は除外する。
  */
-const collectRefs = (tokens: readonly Token[], excludeIndex = -1): IdentifierRef[] => {
+const collectRefs = (
+  tokens: readonly Token[],
+  excludeIndex = -1,
+  opcode = instructionOpcode(tokens),
+): readonly IdentifierRef[] => {
   const refs: IdentifierRef[] = [];
-  const opcode = instructionOpcode(tokens);
   for (let i = 0; i < tokens.length; i += 1) {
     if (i === excludeIndex) continue;
     const token = tokens[i]!;
@@ -91,7 +120,7 @@ const collectRefs = (tokens: readonly Token[], excludeIndex = -1): IdentifierRef
       refs.push(makeRef(token, tokens[i - 1], contextualRefKind(tokens, i, opcode)));
     }
   }
-  return refs;
+  return refs.length === 0 ? EMPTY_IDENTIFIER_REFS : refs;
 };
 
 /**
@@ -138,8 +167,12 @@ const isBlockAddressLabel = (tokens: readonly Token[], index: number): boolean =
     (tokens[index - 2]?.value === "(" && tokens[index - 3]?.value === "blockaddress"));
 
 /** 命令行・本体要素内の最初の opcode。 */
-const instructionOpcode = (tokens: readonly Token[]): string | undefined =>
-  tokens.find((token) => token.kind === "Opcode")?.value;
+const instructionOpcode = (tokens: readonly Token[]): string | undefined => {
+  for (const token of tokens) {
+    if (token.kind === "Opcode") return token.value;
+  }
+  return undefined;
+};
 
 /** トークン列から、指定種別の最初のトークンとその位置を探す。 */
 const findToken = (
@@ -171,11 +204,11 @@ const hasWord = (tokens: readonly Token[], kind: Token["kind"], value: string): 
  * ast.entries[0].kind //=> "GlobalVariable"
  */
 export const parseModule = (source: string): ParseResult => {
-  const tokens = tokenize(source).filter((t) => t.kind !== "Comment");
+  const tokens = tokenizeForParser(source);
   const eof = tokens[tokens.length - 1]!;
   const moduleRange: Range = {
     start: { offset: 0, line: 0, column: 0 },
-    end: eof.range.end,
+    end: endPositionOf(eof),
   };
 
   const entries: TopLevelEntry[] = [];
@@ -183,14 +216,14 @@ export const parseModule = (source: string): ParseResult => {
 
   /** `start` から論理行のトークンを集め、次の開始位置を返す。 */
   const collectLine = (start: number): { line: Token[]; next: number } => {
-    let lineEnd = tokens[start]!.range.start.line;
+    let lineEnd = tokens[start]!.startLine;
     let end = start;
     while (
       end < tokens.length &&
       tokens[end]!.kind !== "Eof" &&
-      tokens[end]!.range.start.line <= lineEnd
+      tokens[end]!.startLine <= lineEnd
     ) {
-      lineEnd = Math.max(lineEnd, tokens[end]!.range.end.line);
+      lineEnd = Math.max(lineEnd, tokens[end]!.endLine ?? tokens[end]!.startLine);
       end += 1;
     }
     return { line: tokens.slice(start, end), next: end };
@@ -198,17 +231,21 @@ export const parseModule = (source: string): ParseResult => {
 
   /** `define` 以外のトップレベルエントリを、括弧が閉じる位置まで集める。 */
   const collectTopLevelEntry = (start: number): { line: Token[]; next: number } => {
-    const line: Token[] = [];
-    let next = start;
+    const first = collectLine(start);
+    const line = first.line;
+    let next = first.next;
     let depth = 0;
-    do {
+    for (const token of line) {
+      depth = updateDelimiterDepth(depth, token.value);
+    }
+    while (next < tokens.length && tokens[next]?.kind !== "Eof" && depth > 0) {
       const collected = collectLine(next);
       line.push(...collected.line);
       for (const token of collected.line) {
         depth = updateDelimiterDepth(depth, token.value);
       }
       next = collected.next;
-    } while (next < tokens.length && tokens[next]?.kind !== "Eof" && depth > 0);
+    }
     return { line, next };
   };
 
@@ -263,7 +300,7 @@ export const parseModule = (source: string): ParseResult => {
         kind: "FunctionDefinition",
         defines: defines?.token
           ? makeRef(defines.token, undefined)
-          : { kind: "GlobalRef", name: "", range: head.range },
+          : { kind: "GlobalRef", name: "", range: rangeOf(head) },
         blocks,
         references: collectRefs(signature, defines?.index),
         range: spanOf(head, last),
@@ -323,7 +360,7 @@ const parseBlocks = (body: readonly Token[]): BasicBlock[] => {
       const lineLast = body[next - 1]!;
       flush();
       current = {
-        label: { kind: "LabelRef", name: head.value, range: head.range },
+        label: { kind: "LabelRef", name: head.value, range: rangeOf(head) },
         instructions: [],
         debugRecords: [],
         directives: [],
@@ -428,10 +465,10 @@ const isFunctionBodyOpen = (tokens: readonly Token[], index: number): boolean =>
 
 /** `body` 内の `start` から論理行のトークンを集める（本体用の行分割）。 */
 const collectLineIn = (body: readonly Token[], start: number): { line: Token[]; next: number } => {
-  let lineEnd = body[start]!.range.start.line;
+  let lineEnd = body[start]!.startLine;
   let end = start;
-  while (end < body.length && body[end]!.range.start.line <= lineEnd) {
-    lineEnd = Math.max(lineEnd, body[end]!.range.end.line);
+  while (end < body.length && body[end]!.startLine <= lineEnd) {
+    lineEnd = Math.max(lineEnd, body[end]!.endLine ?? body[end]!.startLine);
     end += 1;
   }
   return { line: body.slice(start, end), next: end };
@@ -442,17 +479,21 @@ const collectDebugRecordIn = (
   body: readonly Token[],
   start: number,
 ): { record: Token[]; next: number } => {
-  const record: Token[] = [];
-  let next = start;
+  const first = collectLineIn(body, start);
+  const record = first.line;
+  let next = first.next;
   let depth = 0;
-  do {
+  for (const token of record) {
+    depth = updateDelimiterDepth(depth, token.value);
+  }
+  while (next < body.length && depth > 0) {
     const collected = collectLineIn(body, next);
     record.push(...collected.line);
     for (const token of collected.line) {
       depth = updateDelimiterDepth(depth, token.value);
     }
     next = collected.next;
-  } while (next < body.length && depth > 0);
+  }
   return { record, next };
 };
 
@@ -461,17 +502,21 @@ const collectDelimitedElementIn = (
   body: readonly Token[],
   start: number,
 ): { element: Token[]; next: number } => {
-  const element: Token[] = [];
-  let next = start;
+  const first = collectLineIn(body, start);
+  const element = first.line;
+  let next = first.next;
   let depth = 0;
-  do {
+  for (const token of element) {
+    depth = updateDelimiterDepth(depth, token.value);
+  }
+  while (next < body.length && (depth > 0 || isInstructionContinuation(element, body, next))) {
     const collected = collectLineIn(body, next);
     element.push(...collected.line);
     for (const token of collected.line) {
       depth = updateDelimiterDepth(depth, token.value);
     }
     next = collected.next;
-  } while (next < body.length && (depth > 0 || isInstructionContinuation(element, body, next)));
+  }
   return { element, next };
 };
 
@@ -503,13 +548,17 @@ const makeInstruction = (line: readonly Token[]): Instruction => {
     result = makeRef(first, undefined);
     excludeIndex = 0;
   }
-  const opcode = findToken(line, "Opcode")?.token.value;
+  const opcode = instructionOpcode(line);
+  const range: Range = {
+    start: result?.range.start ?? startPositionOf(first),
+    end: endPositionOf(last),
+  };
   return {
     kind: "Instruction",
     ...(result ? { result } : {}),
     ...(opcode ? { opcode } : {}),
-    operands: collectRefs(line, excludeIndex),
-    range: spanOf(first, last),
+    operands: collectRefs(line, excludeIndex, opcode),
+    range,
   };
 };
 

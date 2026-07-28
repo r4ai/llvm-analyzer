@@ -148,6 +148,7 @@ describe("analyze: 定義参照インデックス", () => {
       model.referencesOf(model.symbolAt(posOf(source, "@puts"))?.id ?? "").map((r) => r.name),
     ).toEqual(["@puts", "@puts"]);
     expect(model.referencesOf("missing-symbol")).toEqual([]);
+    expect(model.referencesOf("")).toEqual([]);
   });
 
   it("関数引数の定義位置を referencesOf で重複させない", () => {

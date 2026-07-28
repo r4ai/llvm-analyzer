@@ -82,17 +82,26 @@ sequenceDiagram
   end
   Server->>Analyzer: analyze(ast, { source })
   Analyzer->>Parser: 必要に応じて型構文を解析
-  Server->>Server: 同じsnapshotを全索引へ登録
-  Server-->>VSCode: hover、definition、diagnostics など
+  Server->>Server: 中核snapshotを保存
+  Server-->>VSCode: hover、definition、references
+  opt Workspace SymbolまたはCall Hierarchy要求
+    Server->>Server: 同じsnapshotから派生索引を最新化
+  end
+  Server-->>VSCode: diagnostics
   Server-->>Verifier: 設定が有効なら遅延実行
   Verifier-->>Server: verifier 診断
   Server-->>VSCode: 診断を差し替え
 ```
 
-`language-server` は変更を debounce し、その間の`contentChanges`を通知順に保持します。
+`language-server` はファイルを開いた時点で中核snapshotを一度だけ作り、初回要求を診断debounceの後ろへ置きません。
+parserは公開`Token`と字句規則を共有しつつ、AST構築中だけ位置をプリミティブ値で持つ軽量Tokenを使います。
+全字句へ公開用の`Range`と二つの`Position`を割り当てず、ASTへ残るrangeだけを具体化します。
+変更はdebounceし、その間の`contentChanges`を通知順に保持します。
 通常の関数内編集では、明示的な編集範囲から対象要素を二分探索し、変更されたトップレベル要素だけを再パースします。
 意味モデルはモジュール全体を再リンクし、トップレベル定義をまたぐ参照の整合性を保ちます。
-表示用の命令結果型は最初の参照時に一度だけ推定し、Inlay Hintsは要求範囲外の型を評価しません。
+表示用の命令結果型、CFG、直接呼び出し列は対応する機能が最初に要求したときに一度だけ導出し、Inlay Hintsは要求範囲外の型を評価しません。
+Workspace SymbolとCall Hierarchyの索引は要求時に最新snapshotから更新し、Definition、Hover、Referencesの応答経路から分離します。
+workspace初期走査は読み込みを最大4件並行しつつ、ファイル解析の間にイベントループへ制御を返します。
 構造境界を確定できない変更は全体パースへ戻ります。
 parser sessionは直前の更新戦略と再パースbyte数を公開し、性能ベンチマークから局所更新を確認できます。
 外部 verifier の結果は、編集中のスナップショットと一致する場合だけ採用します。

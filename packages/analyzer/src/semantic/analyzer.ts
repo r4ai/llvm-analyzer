@@ -178,8 +178,6 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   const symbols: MutableSymbol[] = [];
   const occurrences: Occurrence[] = [];
   const diagnostics: AnalyzerDiagnostic[] = [];
-  const directCalls: DirectCall[] = [];
-  const controlFlowGraphs: ControlFlowGraph[] = [];
   const reportUndefinedReferences = options.reportUndefinedReferences ?? true;
   const typeDefinitionRanges = ast.entries
     .filter((entry) => entry.kind === "TypeDefinition")
@@ -206,7 +204,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   ): MutableSymbol => {
     const existing = scope.symbols.get(ref.name);
     const symbol = new MutableSymbol(
-      `${scope.id}:${ref.name}:${symbols.length}`,
+      symbols.length.toString(36),
       ref.name,
       kind,
       scope.id,
@@ -284,8 +282,6 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
         }
       }
     }
-    directCalls.push(...extractDirectCalls(entry, options.source));
-    controlFlowGraphs.push(extractControlFlowGraph(entry, options.source));
     validateFunctionBody(entry, diagnostics);
   }
 
@@ -348,15 +344,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   }
 
   occurrences.sort(compareOccurrences);
-  return makeModel(
-    symbols,
-    occurrences,
-    diagnostics,
-    ast.entries,
-    functionScopes,
-    directCalls,
-    controlFlowGraphs,
-  );
+  return makeModel(symbols, occurrences, diagnostics, ast.entries, functionScopes, options.source);
 };
 
 /**
@@ -826,8 +814,7 @@ const resolveBlockAddressRef = (
  * @param diagnostics 解析中に収集した意味診断。
  * @param entries documentSymbol 構築に使うトップレベルエントリ列。
  * @param functionScopes 関数名から関数スコープへの対応。
- * @param directCalls 関数本体から抽出した直接呼び出し。
- * @param controlFlowGraphs 関数本体から抽出した CFG。
+ * @param source 呼び出し先とCFGを要求時に抽出する元ソース。
  * @returns 公開用の意味モデル。
  *
  * @remarks
@@ -840,16 +827,34 @@ const makeModel = (
   diagnostics: readonly AnalyzerDiagnostic[],
   entries: readonly TopLevelEntry[],
   functionScopes: ReadonlyMap<string, Scope>,
-  directCalls: readonly DirectCall[],
-  controlFlowGraphs: readonly ControlFlowGraph[],
+  source: string | undefined,
 ): SemanticModel => {
   const symbols: readonly SemanticSymbol[] = mutableSymbols;
   const symbolsByDefinition = definitionSymbolsOf(occurrences);
   const symbolsByScope = lazyValue(() => groupSymbolsByScope(symbols));
   const documentSymbols = lazyValue(() => makeDocumentSymbols(entries, functionScopes));
+  const functionEntries = entries.filter(
+    (entry): entry is FunctionDefinition => entry.kind === "FunctionDefinition",
+  );
+  const directCalls = lazyValue(() =>
+    functionEntries.flatMap((entry) => extractDirectCalls(entry, source)),
+  );
+  const controlFlowGraphCache = new WeakMap<FunctionDefinition, ControlFlowGraph>();
+  const graphOf = (entry: FunctionDefinition): ControlFlowGraph => {
+    const cached = controlFlowGraphCache.get(entry);
+    if (cached) return cached;
+    const graph = extractControlFlowGraph(entry, source);
+    controlFlowGraphCache.set(entry, graph);
+    return graph;
+  };
+  const controlFlowGraphs = lazyValue(() => functionEntries.map(graphOf));
 
   const publicOccurrenceAt = (position: Position) => occurrenceAt(occurrences, position);
-  const graphAt = (position: Position) => rangeEntryAt(controlFlowGraphs, position);
+  const functionAt = (position: Position) => rangeEntryAt(functionEntries, position);
+  const graphAt = (position: Position) => {
+    const entry = functionAt(position);
+    return entry ? graphOf(entry) : undefined;
+  };
 
   return {
     symbols,
@@ -862,14 +867,14 @@ const makeModel = (
     visibleSymbolsAt: (position) => {
       const symbolsByScopeValue = symbolsByScope();
       const moduleSymbols = symbolsByScopeValue.get(MODULE_SCOPE_ID) ?? [];
-      const graph = graphAt(position);
-      return graph
-        ? [...moduleSymbols, ...symbolsByScopeValue.get(`function:${graph.functionName}`)!]
+      const entry = functionAt(position);
+      return entry
+        ? [...moduleSymbols, ...symbolsByScopeValue.get(`function:${entry.defines.name}`)!]
         : moduleSymbols;
     },
     documentSymbols,
-    directCalls: () => directCalls,
-    controlFlowGraphs: () => controlFlowGraphs,
+    directCalls,
+    controlFlowGraphs,
     controlFlowGraphAt: graphAt,
     diagnostics: () => diagnostics,
   };
@@ -883,15 +888,14 @@ const makeModel = (
  * @returns IDがこの解析結果のシンボルと一致すればそのシンボル、未知のIDなら`undefined`。
  *
  * @remarks
- * ID末尾の登録順インデックスを使い、最初のReferences要求で全シンボルのMapを構築しない。
- * 名前にはコロンを含められるため、末尾の区切りだけを使う。
+ * ID全体をbase36の登録順インデックスとして使い、最初のReferences要求で全シンボルのMapを構築しない。
+ * IDは単一解析結果内だけで有効なため、scope名とsymbol名を重ねて保持しない。
  */
 const symbolById = (
   symbols: readonly SemanticSymbol[],
   symbolId: SymbolId,
 ): SemanticSymbol | undefined => {
-  const separator = symbolId.lastIndexOf(":");
-  const index = Number(symbolId.slice(separator + 1));
+  const index = Number.parseInt(symbolId, 36);
   const symbol = Number.isInteger(index) ? symbols[index] : undefined;
   return symbol?.id === symbolId ? symbol : undefined;
 };

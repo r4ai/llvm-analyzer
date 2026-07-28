@@ -659,6 +659,16 @@ describe("LSP 機能アダプタ", () => {
         },
       }),
     ]);
+    expect(
+      getCodeActions(
+        broken,
+        {
+          start: { line: 3, character: 12 },
+          end: { line: 3, character: 18 },
+        },
+        diagnostics,
+      ),
+    ).toEqual(actions);
     expect(codeActionProviderCapability).toEqual({ codeActionKinds: ["quickfix"] });
   });
 
