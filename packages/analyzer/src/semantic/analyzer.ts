@@ -204,7 +204,7 @@ export const analyze = (ast: Module, options: AnalyzeOptions = {}): SemanticMode
   ): MutableSymbol => {
     const existing = scope.symbols.get(ref.name);
     const symbol = new MutableSymbol(
-      `${scope.id}:${ref.name}:${symbols.length}`,
+      symbols.length.toString(36),
       ref.name,
       kind,
       scope.id,
@@ -888,15 +888,14 @@ const makeModel = (
  * @returns IDがこの解析結果のシンボルと一致すればそのシンボル、未知のIDなら`undefined`。
  *
  * @remarks
- * ID末尾の登録順インデックスを使い、最初のReferences要求で全シンボルのMapを構築しない。
- * 名前にはコロンを含められるため、末尾の区切りだけを使う。
+ * ID全体をbase36の登録順インデックスとして使い、最初のReferences要求で全シンボルのMapを構築しない。
+ * IDは単一解析結果内だけで有効なため、scope名とsymbol名を重ねて保持しない。
  */
 const symbolById = (
   symbols: readonly SemanticSymbol[],
   symbolId: SymbolId,
 ): SemanticSymbol | undefined => {
-  const separator = symbolId.lastIndexOf(":");
-  const index = Number(symbolId.slice(separator + 1));
+  const index = Number.parseInt(symbolId, 36);
   const symbol = Number.isInteger(index) ? symbols[index] : undefined;
   return symbol?.id === symbolId ? symbol : undefined;
 };

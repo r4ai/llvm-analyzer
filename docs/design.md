@@ -25,6 +25,8 @@ parser/analyzer は `vscode*` に一切依存しない。
 - **lexer**: 状態遷移表ベースのトークナイザ。各トークンに `range`（offset/line/column, **0始まり**＝LSP互換）を保持。
   - 公開API: `tokenize(source: string): Token[]`（純粋関数、末尾に必ずゼロ幅の `Eof`）。
   - 不変条件: `source.slice(range.start.offset, range.end.offset) === token.value`。
+  - 公開`Token`とparser専用の軽量Tokenは同じscannerから生成する。
+    parser専用Tokenは単一行の終了位置を開始位置と値の長さから導出し、ASTへ残すrangeだけを具体化する。
   - 不正な文字は `Unknown` トークンとして残し解析を止めない（エラー回復）。
   - トークン種別: グローバル識別子 `@name`/`@"..."`/`@1`、ローカル識別子 `%name`/`%1`、ラベル (`name:`/`0:`)、
     メタデータ `!name`/`!0`、属性グループ `#0`、debug record `#dbg_*`、comdat `$name`、

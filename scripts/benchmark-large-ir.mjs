@@ -31,7 +31,7 @@ const MAX_INTERACTIVE_ACTION_MS = 20;
 const MAX_COLD_FULL_ACTION_MS = 100;
 const MAX_INITIAL_SNAPSHOT_MS = 500;
 const MAX_INCREMENTAL_NAVIGATION_MS = 150;
-const MAX_EXTRA_LARGE_NAVIGATION_MS = 1_500;
+const MAX_EXTRA_LARGE_NAVIGATION_MS = 400;
 const MAX_NUMERIC_LEXING_RATIO = 1.4;
 const MIN_POINT_GROWTH_BASELINE_MS = 5;
 const MIN_OUTPUT_GROWTH_BASELINE_MS = 10;
@@ -350,6 +350,7 @@ function benchmark(source) {
   const samples = Array.from({ length: SAMPLES }, () => parseAndAnalyze(source));
   return {
     bytes: source.length,
+    tokenizeMs: benchmarkLexing(source).tokenizeMs,
     parseMs: median(samples.map((sample) => sample.parseMs)),
     analyzeMs: median(samples.map((sample) => sample.analyzeMs)),
   };
@@ -528,7 +529,7 @@ function benchmarkDeferredNavigationIndexes(source) {
 
 function benchmarkInitialNavigation(source) {
   const referenceOffset = source.lastIndexOf(`ret i32 %v39`) + "ret i32 ".length;
-  const samples = Array.from({ length: 3 }, (_, index) => {
+  const samples = Array.from({ length: SAMPLES }, (_, index) => {
     const start = performance.now();
     const snapshot = makeDocumentSnapshot(LSP_DOCUMENT_URI, source, index + 1);
     assertDefinitionOnly(snapshot, referenceOffset);

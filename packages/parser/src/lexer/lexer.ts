@@ -1,5 +1,35 @@
 import { classifyBareword } from "./keywords.ts";
-import type { Position, Token, TokenKind } from "./token.ts";
+import type { Token, TokenKind } from "./token.ts";
+
+/**
+ * parserがAST構築中だけ保持する軽量トークン。
+ *
+ * @remarks
+ * 公開{@link Token}の入れ子になった位置オブジェクトを全字句へ割り当てず、
+ * ASTへ保存するrangeだけをparser側で具体化する。
+ */
+export interface ParserToken {
+  readonly kind: TokenKind;
+  readonly value: string;
+  readonly startOffset: number;
+  readonly startLine: number;
+  readonly startColumn: number;
+  /** 複数行トークンだけが持つ終了行。単一行なら開始行と値の長さから導出する。 */
+  readonly endLine?: number;
+  /** 複数行トークンだけが持つ終了桁。 */
+  readonly endColumn?: number;
+}
+
+type TokenFactory<T> = (
+  kind: TokenKind,
+  value: string,
+  startOffset: number,
+  startLine: number,
+  startColumn: number,
+  endOffset: number,
+  endLine: number,
+  endColumn: number,
+) => T | undefined;
 
 /** 単一文字の記号トークン。 */
 const PUNCTUATORS = new Set("=,{}()[]<>*:|");
@@ -30,43 +60,37 @@ const isBarewordStart = (ch: string | undefined): boolean =>
   isAsciiLetter(ch) || ch === "." || ch === "_";
 const isHexMarker = (ch: string | undefined): boolean => ch === "x" || ch === "X";
 
-/**
- * LLVM IR ソースを `range` 付きのトークン列へ分解する純粋関数。
- * 空白はスキップし、末尾に必ずゼロ幅の `Eof` トークンを1つ付与する。
- * 不正な文字は `Unknown` トークンとして残し、解析を止めない（エラー回復）。
- *
- * @param source LLVM IR のソース文字列
- * @returns 出現順のトークン列（末尾は `Eof`）
- * @example
- * tokenize("%x = add i32 1, 2")
- * //=> LocalIdentifier(%x), Punctuation(=), Opcode(add), Type(i32),
- * //   Number(1), Punctuation(,), Number(2), Eof
- */
-export const tokenize = (source: string): Token[] => {
+/** 共通の字句状態遷移から、呼び出し側が必要なトークン表現を生成する。 */
+const scanTokens = <T>(source: string, makeToken: TokenFactory<T>): T[] => {
   const length = source.length;
   let positionOffset = 0;
   let positionLine = 0;
   let positionLineStart = 0;
-  const positionAt = (offset: number): Position => {
+  const advancePosition = (offset: number): void => {
     for (; positionOffset < offset; positionOffset += 1) {
       if (source.charCodeAt(positionOffset) !== 10) continue;
       positionLine += 1;
       positionLineStart = positionOffset + 1;
     }
-    return {
-      offset,
-      line: positionLine,
-      column: offset - positionLineStart,
-    };
   };
 
-  const tokens: Token[] = [];
+  const tokens: T[] = [];
   const emit = (kind: TokenKind, start: number, end: number): void => {
-    tokens.push({
+    advancePosition(start);
+    const startLine = positionLine;
+    const startColumn = start - positionLineStart;
+    advancePosition(end);
+    const token = makeToken(
       kind,
-      value: source.slice(start, end),
-      range: { start: positionAt(start), end: positionAt(end) },
-    });
+      source.slice(start, end),
+      start,
+      startLine,
+      startColumn,
+      end,
+      positionLine,
+      end - positionLineStart,
+    );
+    if (token !== undefined) tokens.push(token);
   };
 
   /** `pos` 以降の文字列リテラルの終端（閉じ引用符の次、または EOF）を返す。 */
@@ -305,3 +329,44 @@ export const tokenize = (source: string): Token[] => {
   emit("Eof", length, length);
   return tokens;
 };
+
+/**
+ * LLVM IR ソースを `range` 付きのトークン列へ分解する純粋関数。
+ * 空白はスキップし、末尾に必ずゼロ幅の `Eof` トークンを1つ付与する。
+ * 不正な文字は `Unknown` トークンとして残し、解析を止めない（エラー回復）。
+ *
+ * @param source LLVM IR のソース文字列
+ * @returns 出現順のトークン列（末尾は `Eof`）
+ * @example
+ * tokenize("%x = add i32 1, 2")
+ * //=> LocalIdentifier(%x), Punctuation(=), Opcode(add), Type(i32),
+ * //   Number(1), Punctuation(,), Number(2), Eof
+ */
+export const tokenize = (source: string): Token[] =>
+  scanTokens(
+    source,
+    (kind, value, startOffset, startLine, startColumn, endOffset, endLine, endColumn) => ({
+      kind,
+      value,
+      range: {
+        start: { offset: startOffset, line: startLine, column: startColumn },
+        end: { offset: endOffset, line: endLine, column: endColumn },
+      },
+    }),
+  );
+
+/**
+ * parser専用の軽量トークン列を返す。
+ *
+ * @remarks
+ * コメントはparserがASTへ保持しないため、生成時に除外して中間配列を作らない。
+ */
+export const tokenizeForParser = (source: string): ParserToken[] =>
+  scanTokens(
+    source,
+    (kind, value, startOffset, startLine, startColumn, _endOffset, endLine, endColumn) => {
+      if (kind === "Comment") return undefined;
+      const token: ParserToken = { kind, value, startOffset, startLine, startColumn };
+      return endLine === startLine ? token : { ...token, endLine, endColumn };
+    },
+  );
