@@ -31,7 +31,7 @@ const MAX_INTERACTIVE_ACTION_MS = 20;
 const MAX_COLD_FULL_ACTION_MS = 100;
 const MAX_INITIAL_SNAPSHOT_MS = 500;
 const MAX_INCREMENTAL_NAVIGATION_MS = 150;
-const MAX_EXTRA_LARGE_NAVIGATION_MS = process.env.CI === "true" ? 1_100 : 400;
+const MAX_EXTRA_LARGE_NORMALIZED_GROWTH = 1.3;
 const MAX_NUMERIC_LEXING_RATIO = 1.4;
 const MIN_POINT_GROWTH_BASELINE_MS = 5;
 const MIN_OUTPUT_GROWTH_BASELINE_MS = 10;
@@ -65,8 +65,10 @@ parseAndAnalyze(makeManyFunctions(10, 10));
 
 let failed = false;
 
-const numericLexing = benchmarkLexing(makeNumericInstructions(8_000));
-const identifierLexing = benchmarkLexing(makeIdentifierInstructions(8_000));
+const [numericLexing, identifierLexing] = benchmarkLexingPair(
+  makeNumericInstructions(8_000),
+  makeIdentifierInstructions(8_000),
+);
 const numericLexingRatio = numericLexing.tokenizeMs / identifierLexing.tokenizeMs;
 console.log(
   JSON.stringify({
@@ -255,18 +257,21 @@ if (
 }
 
 const extraLargeNavigation = benchmarkInitialNavigation(makeManyFunctions(6_400, 40));
+const extraLargeNormalizedGrowth =
+  extraLargeNavigation.initialNavigationMs / lifecycleLarge.initialLoadMs / SIZE_FACTOR;
 console.log(
   JSON.stringify({
     scenario: "extra-large-initial-navigation",
     ...extraLargeNavigation,
+    normalizedGrowth: round(extraLargeNormalizedGrowth),
   }),
 );
 if (
   process.argv.includes("--check") &&
-  extraLargeNavigation.initialNavigationMs > MAX_EXTRA_LARGE_NAVIGATION_MS
+  extraLargeNormalizedGrowth > MAX_EXTRA_LARGE_NORMALIZED_GROWTH
 ) {
   console.error(
-    `extra-large-initial-navigation: 約6 MBの初回Definitionが ${MAX_EXTRA_LARGE_NAVIGATION_MS} msを超えました: ${extraLargeNavigation.initialNavigationMs} ms`,
+    `extra-large-initial-navigation: 約6 MBの初回Definitionが入力4倍で正規化後 ${round(extraLargeNormalizedGrowth)} 倍に増加しました`,
   );
   failed = true;
 }
@@ -383,6 +388,44 @@ function benchmarkLexing(source) {
       ),
     ),
   };
+}
+
+/**
+ * 二つのlexer入力を同じウォームアップ状態と交互の測定順で比較する。
+ *
+ * @remarks
+ * 入力ごとに全サンプルを直列計測すると、後から測る入力だけがJIT最適化や直前のGC停止を
+ * 有利に受ける。各サンプルの先行入力を交互にし、入力固有でない順序差を比率から除く。
+ */
+function benchmarkLexingPair(firstSource, secondSource) {
+  for (let iteration = 0; iteration < 10; iteration += 1) {
+    tokenize(firstSource);
+    tokenize(secondSource);
+  }
+  const firstSamples = [];
+  const secondSamples = [];
+  for (let sample = 0; sample < SAMPLES; sample += 1) {
+    const firstMeasure = () => firstSamples.push(measureLexingBatch(firstSource));
+    const secondMeasure = () => secondSamples.push(measureLexingBatch(secondSource));
+    if (sample % 2 === 0) {
+      firstMeasure();
+      secondMeasure();
+    } else {
+      secondMeasure();
+      firstMeasure();
+    }
+  }
+  return [
+    { bytes: firstSource.length, tokenizeMs: round(median(firstSamples)) },
+    { bytes: secondSource.length, tokenizeMs: round(median(secondSamples)) },
+  ];
+}
+
+/** lexerを10回実行し、一回あたりの時間を返す。 */
+function measureLexingBatch(source) {
+  const start = performance.now();
+  for (let iteration = 0; iteration < 10; iteration += 1) tokenize(source);
+  return (performance.now() - start) / 10;
 }
 
 function parseAndAnalyze(source) {
