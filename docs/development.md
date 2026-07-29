@@ -60,19 +60,22 @@ pnpm --filter llvm-analyzer-vscode package
 | `pnpm test`                                   | Vitest を実行する。                                                                                                                                                                                |
 | `pnpm test:coverage`                          | Vitest とカバレッジ計測を実行する。                                                                                                                                                                |
 | `pnpm benchmark:large-ir -- --check`          | 巨大IRの初回解析、約6 MBの初回Definition、編集後Definition、数値中心lexer、横に広い命令の回復、局所更新量、派生索引分離、表示範囲の型問い合わせ、索引共有、主要LSP操作について性能回帰を検査する。 |
+| `pnpm benchmark:compare -- <options>`         | 同じrunnerでbaseと変更後を交互に計測し、相対差と実時間差の95%信頼区間から回帰を判定する。                                                                                                          |
 | `pnpm build`                                  | workspace 全体の build を実行する。                                                                                                                                                                |
 | `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host で fixture workspace を開き、主要 LSP 経路の E2E を実行する。                                                                                                                |
 | `pnpm --filter llvm-analyzer-vscode package`  | VSCode 拡張機能の `.vsix` を作成する。                                                                                                                                                             |
 
 ## CI とサプライチェーン対策
 
-| 対象                | 対策                                                                                                    |
-| ------------------- | ------------------------------------------------------------------------------------------------------- |
-| 依存解決            | CI とローカル導入で `--frozen-lockfile` を使う。                                                        |
-| 公開直後の依存      | pnpm の `minimumReleaseAge` で、公開直後の依存バージョンをすぐ取り込まない。                            |
-| 依存の build script | pnpm の `allowBuilds` で、許可した依存だけにビルドスクリプト実行を認める。                              |
-| GitHub Actions      | [pinact](https://github.com/suzuki-shunsuke/pinact) で `uses:` をコミット SHA に固定する。              |
-| CI 検査             | Devbox 上で lint、format、typecheck、test、巨大IRベンチマーク、build、`pinact run --check` を実行する。 |
+| 対象                | 対策                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 依存解決            | CI とローカル導入で `--frozen-lockfile` を使う。                                                                                             |
+| 公開直後の依存      | pnpm の `minimumReleaseAge` で、公開直後の依存バージョンをすぐ取り込まない。                                                                 |
+| 依存の build script | pnpm の `allowBuilds` で、許可した依存だけにビルドスクリプト実行を認める。                                                                   |
+| GitHub Actions      | [pinact](https://github.com/suzuki-shunsuke/pinact) で `uses:` をコミット SHA に固定する。                                                   |
+| CI 検査             | 通常検査と性能検査を別jobにし、Devbox 上で lint、format、typecheck、test、build、巨大IRの統計ベンチマーク、`pinact run --check` を実行する。 |
+| 性能実行環境        | `ubuntu-24.04`の専用jobで単一CPU affinity、固定Nodeヒープ、固定localeを使い、pull requestのbaseと変更後を同じVMで比較する。                  |
+| 性能成果物          | 生サンプル、MAD、95%信頼区間、wall time、CPU time、環境情報、base比較をJSONとJob Summaryへ保存する。                                         |
 
 ## リリース管理
 

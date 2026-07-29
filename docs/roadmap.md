@@ -165,6 +165,12 @@
   - コメントと空の参照配列をparserで共有・除外し、意味シンボルIDを短い登録順文字列へ変更した
   - 約1.58 MBの初回snapshotを112.6 msから84.1 ms、約6.3 MBの初回Definitionを461.7 msから349.0 msへ短縮した
   - parserのCPUサンプルを1,324から719、GC比率を40.0%から22.5%へ削減し、5サンプル中央値の性能ゲートへ反映した
+- [x] **CI性能ゲートの信頼性向上**（2026-07-28）
+  - 性能検査を専用のGitHub-hosted runner jobへ分離し、Devbox、単一CPU affinity、固定Nodeヒープとlocaleで実行条件を揃えた
+  - 短時間処理の自動バッチ、9サンプルから最大25サンプルの逐次計測、MAD、95% bootstrap信頼区間を追加した
+  - smallとlarge、全体再構築と差分更新、重複解析とsnapshot共有の先行順を交互にした
+  - pull requestのbaseと変更後を同じVMで3 round交互に計測し、相対差と実時間差がともに許容範囲を超えた場合だけ回帰と判定するようにした
+  - 生サンプル、wall time、CPU time、実行環境、base比較をJSON artifactとJob Summaryへ保存し、mainを毎日定期計測するようにした
 
 ## メモ
 

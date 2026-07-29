@@ -141,6 +141,7 @@ parser sessionは直前の更新戦略と再パースbyte数を公開し、性�
 | `pnpm test`                                   | parser、analyzer、language-server の Vitest。 |
 | `pnpm test:coverage`                          | Vitest とカバレッジ計測。                     |
 | `pnpm benchmark:large-ir -- --check`          | 初回解析、差分編集、各LSP操作の性能回帰検査。 |
+| `pnpm benchmark:compare -- <options>`         | 同じrunner内のbaseと変更後のペア性能比較。    |
 | `pnpm build`                                  | workspace 全体の build。                      |
 | `pnpm --filter llvm-analyzer-vscode test:e2e` | VSCode Extension Host 経由の E2E。            |
 

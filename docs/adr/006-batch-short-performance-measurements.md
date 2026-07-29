@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded
 
 ## Date
 
@@ -14,7 +14,7 @@ Accepted
 
 ## Superseded by
 
-なし
+[ADR 010](./010-paired-ci-performance-measurements.md)
 
 ## Context
 
