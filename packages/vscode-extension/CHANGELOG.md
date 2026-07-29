@@ -1,5 +1,13 @@
 # llvm-analyzer-vscode
 
+## 0.1.7
+
+### Patch Changes
+
+- 6ab05c9: 巨大な LLVM IR で、ファイルを開いた直後の定義・参照ジャンプを先行解析し、無関係な派生索引と診断 debounce の待ち時間を除く。
+  parser 専用の軽量 Token と短い意味シンボル ID により、初回 Definition の一時割り当てと GC 時間も削減する。
+- 2f8e560: 巨大な LLVM IR で、ファイルを開いた直後と編集直後の定義ジャンプ、参照検索、各種アクションの待ち時間を短縮する。
+
 ## 0.1.6
 
 ### Patch Changes
